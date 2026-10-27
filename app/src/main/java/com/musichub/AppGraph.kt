@@ -6,6 +6,7 @@ import com.musichub.data.LibraryRepository
 import com.musichub.data.SettingsRepository
 import com.musichub.data.db.AppDatabase
 import com.musichub.lyrics.LyricsRepository
+import com.musichub.net.FallbackDns
 import com.musichub.net.NetworkRouter
 import com.musichub.playback.EqualizerController
 import com.musichub.playback.PlaybackEngine
@@ -25,7 +26,11 @@ import java.util.concurrent.TimeUnit
 class AppGraph(app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** DNS с запасным DoH: VPN вроде Happ может ломать системный DNS только для приложений. */
+    val dns = FallbackDns()
+
     val http: OkHttpClient = OkHttpClient.Builder()
+        .dns(dns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(YouTubeApi.streamUserAgentInterceptor)
@@ -34,7 +39,7 @@ class AppGraph(app: Application) {
     val settings = SettingsRepository(app)
 
     /** Все запросы идут через роутер: он решает, какой сервис пускать через прокси, а какой мимо VPN. */
-    val router = NetworkRouter(app, settings, http)
+    val router = NetworkRouter(app, settings, http, dns)
     val db: AppDatabase = Room.databaseBuilder(app, AppDatabase::class.java, "musichub.db")
         .fallbackToDestructiveMigration(true)
         .build()

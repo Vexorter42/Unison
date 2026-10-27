@@ -29,7 +29,12 @@ import java.net.UnknownHostException
  * Второе работает, только если VPN разрешает приложениям обход (allowBypass). Самый надёжный вариант:
  * исключить MusicHub из VPN в настройках VPN-клиента и включить прокси для YouTube.
  */
-class NetworkRouter(context: Context, private val settings: SettingsRepository, private val base: OkHttpClient) {
+class NetworkRouter(
+    context: Context,
+    private val settings: SettingsRepository,
+    private val base: OkHttpClient,
+    private val dns: FallbackDns,
+) {
 
     enum class Route(val label: String) {
         DEFAULT("как в системе"),
@@ -188,7 +193,13 @@ class NetworkRouter(context: Context, private val settings: SettingsRepository, 
             Triple("$name — ${routeFor(request.url.host).label}", result, System.currentTimeMillis() - started)
         }
 
-        // Ничего не резолвится через VPN — значит, трафик не проходит через сам VPN-клиент
+        out.add(
+            1,
+            if (dns.systemDnsBroken) "DNS: системный не отвечает (так бывает с Happ) — Unison использует свой, DNS-over-HTTPS"
+            else "DNS: системный, работает",
+        )
+
+        // Не резолвится вообще ничего, даже через DoH — значит, трафик не проходит через сам VPN-клиент
         val all = listOf(ruIp, world) + results.map { it.second }
         if (vpn && all.all { r -> r.exceptionOrNull()?.let { it is UnknownHostException } == true }) {
             val directDns = runCatching { underlyingNetwork()?.getAllByName("ya.ru")?.isNotEmpty() == true }.getOrDefault(false)

@@ -22,8 +22,8 @@ android {
         applicationId = "com.musichub"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.2"
+        versionCode = 5
+        versionName = "0.2.3"
         // Откуда приложение берёт OTA-обновления (GitHub Releases)
         buildConfigField("String", "UPDATE_REPO", "\"Vexorter42/Unison\"")
     }
@@ -98,6 +98,7 @@ dependencies {
     ksp("androidx.room:room-compiler:$room")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("io.coil-kt.coil3:coil-compose:3.2.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
@@ -108,4 +109,6 @@ dependencies {
     implementation("io.github.kyant0:backdrop:1.0.6")
     implementation("io.github.kyant0:shapes:1.2.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
+    testImplementation("junit:junit:4.13.2")
 }
