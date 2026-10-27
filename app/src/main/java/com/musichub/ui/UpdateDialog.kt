@@ -34,7 +34,7 @@ fun UpdateDialog() {
                     Text("Сейчас у вас ${updater.currentVersion}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (s.release.notes.isNotBlank()) {
                         Text("Что нового", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-                        Text(s.release.notes, style = MaterialTheme.typography.bodyMedium)
+                        Text(plainNotes(s.release.notes), style = MaterialTheme.typography.bodyMedium)
                     }
                     if (s.release.sizeBytes > 0) {
                         Text(
@@ -68,3 +68,16 @@ fun UpdateDialog() {
         else -> Unit
     }
 }
+
+/** Описание релиза с GitHub приходит в markdown — показываем его простым текстом. */
+private fun plainNotes(markdown: String): String = markdown.lines()
+    .filterNot { it.trimStart().startsWith("#") }
+    .joinToString("\n") { line ->
+        line.trimEnd()
+            .replace(Regex("""^\s*[-*]\s+"""), "• ")
+            .replace(Regex("""^\s*>\s?"""), "")
+            .replace("**", "")
+            .replace("`", "")
+    }
+    .replace(Regex("""\n{3,}"""), "\n\n")
+    .trim()
