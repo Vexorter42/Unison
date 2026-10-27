@@ -165,16 +165,22 @@ fun SettingsScreen(nav: NavController) {
             Column(Modifier.padding(16.dp)) {
                 Text("Happ: Яндекс и ВК напрямую, YouTube через VPN", fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Лучший способ: правило в самом Happ, работает для всего телефона. Кнопка добавит профиль маршрутизации " +
-                        "в Happ, после этого переподключитесь к серверу. Если подписка у вас в формате JSON, " +
-                        "Happ не даст добавить свой профиль — тогда используйте переключатели ниже.",
+                    "Правило в самом Happ, работает для всего телефона. После добавления переподключитесь к серверу.\n\n" +
+                        "Полный — Яндекс, ВК и все российские сайты напрямую. Happ сначала скачает геофайлы (~27 МБ); " +
+                        "пока они не скачались, интернет через VPN может не работать.\n" +
+                        "Простой — только Яндекс и ВК, работает сразу.\n\n" +
+                        "Если интернет пропал — «Отключить в Happ» и переподключитесь.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { openHapp(context) }) { Text("Добавить в Happ") }
-                    OutlinedButton(onClick = { copy(context, HappRouting.deeplink) }) { Text("Копировать") }
+                    Button(onClick = { openHapp(context, HappRouting.simpleDeeplink) }) { Text("Простой") }
+                    OutlinedButton(onClick = { openHapp(context, HappRouting.deeplink) }) { Text("Полный") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { openHapp(context, HappRouting.OFF_DEEPLINK) }) { Text("Отключить в Happ") }
+                    TextButton(onClick = { copy(context, HappRouting.simpleDeeplink) }) { Text("Копировать простой") }
                 }
             }
         }
@@ -292,11 +298,11 @@ fun SettingsScreen(nav: NavController) {
 
 private fun formatMb(mb: Long) = if (mb >= 1024) "%.1f ГБ".format(mb / 1024.0) else "$mb МБ"
 
-private fun openHapp(context: Context) {
-    val intent = Intent(Intent.ACTION_VIEW, HappRouting.deeplink.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+private fun openHapp(context: Context, link: String) {
+    val intent = Intent(Intent.ACTION_VIEW, link.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }.onFailure {
         // Happ также подхватывает ссылку из буфера обмена
-        copy(context, HappRouting.deeplink)
+        copy(context, link)
         Toast.makeText(context, "Happ не открылся — ссылка скопирована, вставьте её в Happ", Toast.LENGTH_LONG).show()
     }
 }

@@ -19,6 +19,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.Socket
+import java.net.UnknownHostException
 
 /**
  * Раздельная маршрутизация трафика по сервисам:
@@ -170,7 +171,7 @@ class NetworkRouter(context: Context, private val settings: SettingsRepository, 
         if (ru != null && foreign != null) {
             out += when {
                 ru != foreign.first -> "✓ Раздельная маршрутизация работает: российские сервисы напрямую, остальное через VPN (${foreign.second})"
-                vpn -> "✗ Всё идёт одним путём. Проверьте, что в Happ активен профиль «${HappRouting.PROFILE_NAME}», и переподключитесь к серверу"
+                vpn -> "✗ Всё идёт одним путём. Проверьте, что в Happ активен профиль Unison, и переподключитесь к серверу"
                 else -> "VPN выключен — всё идёт напрямую"
             }
         }
@@ -180,13 +181,26 @@ class NetworkRouter(context: Context, private val settings: SettingsRepository, 
             "ВК" to "https://api.vk.com/method/utils.getServerTime?v=5.131",
             "YouTube" to "https://www.youtube.com/generate_204",
         )
-        out + checks.map { (name, url) ->
+        val results = checks.map { (name, url) ->
             val request = Request.Builder().url(url).build()
-            val route = routeFor(request.url.host)
             val started = System.currentTimeMillis()
             val result = runCatching { callFactory.newCall(request).execute().use { it.code } }
-            val took = System.currentTimeMillis() - started
-            "$name — ${route.label}: " + result.fold(
+            Triple("$name — ${routeFor(request.url.host).label}", result, System.currentTimeMillis() - started)
+        }
+
+        // Ничего не резолвится через VPN — значит, трафик не проходит через сам VPN-клиент
+        val all = listOf(ruIp, world) + results.map { it.second }
+        if (vpn && all.all { r -> r.exceptionOrNull()?.let { it is UnknownHostException } == true }) {
+            val directDns = runCatching { underlyingNetwork()?.getAllByName("ya.ru")?.isNotEmpty() == true }.getOrDefault(false)
+            out += "✗ Через VPN не работает даже DNS — проблема в Happ, а не в Unison." +
+                (if (directDns) " Без VPN сеть в порядке." else "") +
+                " Проверьте, открываются ли сайты в браузере. Если нет: в Happ отключите профиль маршрутизации " +
+                "(кнопка «Отключить в Happ» выше) или выберите «Простой», затем переподключитесь к серверу. " +
+                "Красный «!» у профиля в Happ значит, что не скачались геофайлы."
+        }
+
+        out + results.map { (label, result, took) ->
+            "$label: " + result.fold(
                 onSuccess = { "OK (HTTP $it, $took мс)" },
                 onFailure = { "ошибка: ${it.message ?: it.javaClass.simpleName}" },
             )
