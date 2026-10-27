@@ -214,7 +214,7 @@ fun SettingsScreen(nav: NavController) {
         }
         SwitchRow(
             "Яндекс и ВК мимо VPN",
-            "Запросы к ним идут напрямую через Wi-Fi/мобильную сеть. Работает, только если VPN разрешает обход",
+            "Только для VPN, которые разрешают обход. С Happ не работает и не нужен — используйте профиль Happ выше",
             s.directBypassVpn,
         ) { v -> update { it.copy(directBypassVpn = v) } }
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {

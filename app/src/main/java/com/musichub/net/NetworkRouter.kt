@@ -5,12 +5,16 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import com.musichub.data.SettingsRepository
+import com.musichub.util.obj
+import com.musichub.util.str
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -55,15 +59,26 @@ class NetworkRouter(context: Context, private val settings: SettingsRepository, 
         }
     }
 
-    @Volatile private var bypassCheck: Pair<Network, Boolean>? = null
+    private class BypassCheck(val network: Network, val vpn: Boolean, val ok: Boolean, val at: Long)
+
+    @Volatile private var bypassCheck: BypassCheck? = null
 
     /** Можно ли привязать сокет к обычной сети в обход VPN (VPN-клиент должен разрешать allowBypass). */
     fun bypassAllowed(): Boolean {
         val network = underlyingNetwork() ?: return false
-        bypassCheck?.takeIf { it.first == network }?.let { return it.second }
+        val vpn = vpnActive()
+        // Ответ зависит от того, включён ли VPN, поэтому кешируем ненадолго и с учётом его состояния
+        bypassCheck?.takeIf { it.network == network && it.vpn == vpn && System.currentTimeMillis() - it.at < 60_000 }
+            ?.let { return it.ok }
         val ok = runCatching { Socket().use { network.bindSocket(it) } }.isSuccess
-        bypassCheck = network to ok
+        bypassCheck = BypassCheck(network, vpn, ok, System.currentTimeMillis())
         return ok
+    }
+
+    /** Обход упал на настоящем запросе — запоминаем, что он запрещён. */
+    private fun markBypassBlocked() {
+        val network = underlyingNetwork() ?: return
+        bypassCheck = BypassCheck(network, vpnActive(), false, System.currentTimeMillis())
     }
 
     fun clientFor(host: String): OkHttpClient = when (routeFor(host)) {
@@ -97,6 +112,17 @@ class NetworkRouter(context: Context, private val settings: SettingsRepository, 
             .dns(object : Dns {
                 override fun lookup(hostname: String): List<InetAddress> = network.getAllByName(hostname).toList()
             })
+            // Страховка: если VPN всё же не пустил мимо себя (EPERM) — повторяем запрос обычным путём
+            .addInterceptor { chain ->
+                try {
+                    chain.proceed(chain.request())
+                } catch (e: IOException) {
+                    val eperm = generateSequence<Throwable>(e) { it.cause }.any { it.message?.contains("EPERM") == true }
+                    if (!eperm) throw e
+                    markBypassBlocked()
+                    base.newCall(chain.request()).execute()
+                }
+            }
             .build()
         directCache = network to client
         return client
@@ -113,20 +139,48 @@ class NetworkRouter(context: Context, private val settings: SettingsRepository, 
     fun vpnActive(): Boolean =
         cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
 
-    /** Проверка: доходит ли каждый сервис по своему маршруту. */
+    private fun fetchText(url: String): String =
+        callFactory.newCall(Request.Builder().url(url).header("User-Agent", "curl/8").build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+            resp.body?.string().orEmpty()
+        }
+
+    /**
+     * Проверка маршрутов. Главное — какой IP видят российские и зарубежные сайты: если разный,
+     * значит раздельная маршрутизация (профиль Happ) работает.
+     */
     suspend fun diagnose(): List<String> = withContext(Dispatchers.IO) {
+        val vpn = vpnActive()
+        val out = mutableListOf("VPN сейчас: ${if (vpn) "включён" else "выключен"}")
+        if (settings.current.directBypassVpn && vpn && !bypassAllowed()) {
+            out += "Переключатель «Яндекс и ВК мимо VPN» с этим VPN не работает: он запрещает приложениям обход. " +
+                "Выключите его — с профилем Happ он и не нужен."
+        }
+
+        // ip.beget.ru — российский хостинг (Happ отправляет напрямую), ipinfo.io — зарубежный (через VPN)
+        val ruIp = runCatching { fetchText("https://ip.beget.ru/").trim() }
+        val world = runCatching {
+            val o = Json.parseToJsonElement(fetchText("https://ipinfo.io/json")).obj()
+            (o?.str("ip") ?: "?") to (o?.str("country") ?: "?")
+        }
+        out += "Российские сайты видят IP: " + ruIp.fold({ it }, { "ошибка: ${it.message}" })
+        out += "Зарубежные сайты видят IP: " + world.fold({ "${it.first} (${it.second})" }, { "ошибка: ${it.message}" })
+        val ru = ruIp.getOrNull()
+        val foreign = world.getOrNull()
+        if (ru != null && foreign != null) {
+            out += when {
+                ru != foreign.first -> "✓ Раздельная маршрутизация работает: российские сервисы напрямую, остальное через VPN (${foreign.second})"
+                vpn -> "✗ Всё идёт одним путём. Проверьте, что в Happ активен профиль «${HappRouting.PROFILE_NAME}», и переподключитесь к серверу"
+                else -> "VPN выключен — всё идёт напрямую"
+            }
+        }
+
         val checks = listOf(
             "Яндекс" to "https://api.music.yandex.net/genres",
             "ВК" to "https://api.vk.com/method/utils.getServerTime?v=5.131",
             "YouTube" to "https://www.youtube.com/generate_204",
         )
-        val header = buildList {
-            add("VPN сейчас: ${if (vpnActive()) "включён" else "выключен"}")
-            if (settings.current.directBypassVpn && vpnActive() && !bypassAllowed()) {
-                add("⚠ VPN-клиент запрещает приложениям обход туннеля, поэтому Яндекс и ВК идут через VPN. Используйте «Добавить в Happ» — правило в самом Happ.")
-            }
-        }
-        header + checks.map { (name, url) ->
+        out + checks.map { (name, url) ->
             val request = Request.Builder().url(url).build()
             val route = routeFor(request.url.host)
             val started = System.currentTimeMillis()

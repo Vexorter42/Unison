@@ -59,14 +59,30 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
             add("v", VERSION)
         }.build()
         val request = Request.Builder().url(API + method).header("User-Agent", USER_AGENT).post(body).build()
-        http.newCall(request).execute().use { resp ->
-            val root = Json.parseToJsonElement(resp.body?.string().orEmpty()).obj()
-                ?: throw VkException(-1, "ВК: пустой ответ")
-            root["error"].obj()?.let { e ->
-                throw VkException(e.long("error_code")?.toInt() ?: -1, "ВК: ${e.str("error_msg")}")
+        // Код 6 — «слишком много запросов в секунду»: VK просит чуть подождать, повторяем пару раз
+        repeat(3) { attempt ->
+            http.newCall(request).execute().use { resp ->
+                val root = Json.parseToJsonElement(resp.body?.string().orEmpty()).obj()
+                    ?: throw VkException(-1, "ВК: пустой ответ")
+                val e = root["error"].obj() ?: return root["response"] ?: JsonNull
+                val code = e.long("error_code")?.toInt() ?: -1
+                if (code == 6 && attempt < 2) {
+                    Thread.sleep(400L * (attempt + 1))
+                    return@use
+                }
+                throw VkException(code, friendlyError(code, e.str("error_msg")))
             }
-            return root["response"] ?: JsonNull
         }
+        throw VkException(6, "ВК: слишком много запросов, попробуйте чуть позже")
+    }
+
+    private fun friendlyError(code: Int, raw: String?): String = when (code) {
+        5 -> "ВК: вход устарел или отозван — войдите заново"
+        6 -> "ВК: слишком много запросов, попробуйте чуть позже"
+        9 -> "ВК временно ограничил запросы к музыке (flood control). Обычно это проходит через 10–60 минут — не входите повторно, просто подождите"
+        25 -> "ВК требует подтвердить вход — войдите заново через страницу VK"
+        29 -> "ВК: исчерпан лимит запросов на сегодня — попробуйте завтра"
+        else -> "ВК: $raw"
     }
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
@@ -104,8 +120,7 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
 
     suspend fun profile(token: String): Pair<Long, String> = io {
         val u = call("users.get", token = token).arr().firstOrNull().obj() ?: throw VkException(-1, "ВК: нет профиля")
-        // Проверяем, что токен реально пускает к аудио
-        call("audio.get", mapOf("count" to "1"), token = token)
+        // Аудио здесь не дёргаем: при «flood control» вход не должен срываться — ограничение VK временное
         val id = u.long("id") ?: throw VkException(-1, "ВК: нет id")
         id to listOfNotNull(u.str("first_name"), u.str("last_name")).joinToString(" ")
     }
