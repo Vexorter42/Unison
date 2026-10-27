@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Для тематических иконок Android 13+: контуры трёх кругов -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M39,44a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:pathData="M30.3,59a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:pathData="M47.7,59a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFFFF" />
+</vector>

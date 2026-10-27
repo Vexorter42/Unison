@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Три «стеклянных» круга — три сервиса, звучащие в унисон. Пересечения светлее. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillAlpha="0.38"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M39,44a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+        android:strokeWidth="1.2"
+        android:strokeAlpha="0.85"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:fillAlpha="0.38"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M30.3,59a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+        android:strokeWidth="1.2"
+        android:strokeAlpha="0.85"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:fillAlpha="0.38"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M47.7,59a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+        android:strokeWidth="1.2"
+        android:strokeAlpha="0.85"
+        android:strokeColor="#FFFFFFFF" />
+</vector>
