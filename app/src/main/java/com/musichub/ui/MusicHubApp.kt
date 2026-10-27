@@ -68,6 +68,7 @@ fun MusicHubApp() {
     val engine = graph.engine
     val settings by graph.settings.flow.collectAsStateWithLifecycle()
     val playerState by engine.state.collectAsStateWithLifecycle()
+    val downloadBatch by engine.downloadBatch.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         graph.updater.checkOnStartup()
@@ -81,11 +82,12 @@ fun MusicHubApp() {
     val fullScreen = route == "player" || route?.startsWith("login") == true
     val showMini = !fullScreen && playerState.track != null
     val showBar = !fullScreen && isTab
+    val showDownloads = !fullScreen && downloadBatch != null
 
     // Всё, что под плавающими элементами, записывается в этот слой — из него стекло берёт картинку
     val backdrop = rememberLayerBackdrop()
     val systemNav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val bottomInset = systemNav + 12.dp + (if (showBar) 74.dp else 0.dp) + (if (showMini) 70.dp else 0.dp)
+    val bottomInset = systemNav + 12.dp + (if (showBar) 74.dp else 0.dp) + (if (showMini) 70.dp else 0.dp) + (if (showDownloads) 58.dp else 0.dp)
 
     CompositionLocalProvider(
         LocalLiquidGlass provides settings.liquidGlass,
@@ -138,6 +140,7 @@ fun MusicHubApp() {
                     .navigationBarsPadding()
                     .padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
             ) {
+                if (showDownloads) DownloadPill(backdrop)
                 if (showMini) MiniPlayer(onOpen = { nav.navigate("player") }, backdrop = backdrop)
                 if (showBar) {
                     LiquidNavBar(

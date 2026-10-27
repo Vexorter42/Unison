@@ -1,5 +1,6 @@
 package com.musichub.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.musichub.ui.liquid.LocalBottomInset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -172,6 +173,13 @@ private fun Hero(
                 Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
                 MetaChip("${tracksCount(tracks.size)} · $duration")
+                if (kind != "downloads") {
+                    val downloaded by App.graph.engine.downloadedKeys.collectAsStateWithLifecycle()
+                    val offline = tracks.count { it.key in downloaded }
+                    if (offline > 0) {
+                        Box(Modifier.padding(top = 6.dp)) { MetaChip("Офлайн: $offline из ${tracks.size}") }
+                    }
+                }
             }
         }
         Row(

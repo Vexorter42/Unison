@@ -36,7 +36,7 @@ data class AppSettings(
     val mixEvery: Int = 4,
     val quality: Quality = Quality.HIGH,
     val fadeSeconds: Int = 0,
-    val autoCacheMb: Int = 2048,
+    val autoCacheMb: Int = 4096,
     val waveMood: String = "all",
     val waveDiversity: String = "default",
     /** YouTube через прокси (SOCKS5 / HTTP). */
@@ -111,7 +111,7 @@ class SettingsRepository(private val context: Context) {
         mixEvery = p[Keys.mixEvery] ?: 4,
         quality = p[Keys.quality]?.let { runCatching { Quality.valueOf(it) }.getOrNull() } ?: Quality.HIGH,
         fadeSeconds = p[Keys.fade] ?: 0,
-        autoCacheMb = p[Keys.cacheMb] ?: 2048,
+        autoCacheMb = p[Keys.cacheMb] ?: 4096,
         waveMood = p[Keys.mood] ?: "all",
         waveDiversity = p[Keys.diversity] ?: "default",
         ytProxyEnabled = p[Keys.proxyOn] ?: false,

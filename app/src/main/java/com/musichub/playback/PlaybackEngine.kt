@@ -18,7 +18,6 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.CacheWriter
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -32,6 +31,7 @@ import com.musichub.data.model.Source
 import com.musichub.data.model.Track
 import com.musichub.search.TrackMatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +47,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/** Прогресс пачки загрузок: сколько всего, сколько готово и как идёт текущий трек. */
+data class DownloadBatch(
+    val total: Int = 0,
+    val done: Int = 0,
+    val failed: Int = 0,
+    val currentTitle: String? = null,
+    val currentProgress: Float = 0f,
+) {
+    val finished: Int get() = done + failed
+    val active: Boolean get() = finished < total
+    val progress: Float get() = if (total == 0) 0f else ((finished + currentProgress) / total).coerceIn(0f, 1f)
+}
 
 data class PlayerState(
     val track: Track? = null,
@@ -72,6 +85,8 @@ data class PlayerState(
 @OptIn(UnstableApi::class)
 class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
+    private val appContext: Context = context.applicationContext
+
     private val scope = graph.scope
     val resolver = StreamResolver(graph)
 
@@ -80,7 +95,8 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     private val dbProvider = StandaloneDatabaseProvider(context)
     private val autoCache = SimpleCache(
         File(context.cacheDir, "media_auto"),
-        LeastRecentlyUsedCacheEvictor(graph.settings.current.autoCacheMb * 1024L * 1024L),
+        // Лимит читается из настроек на лету — менять размер можно без перезапуска
+        DynamicLruEvictor { graph.settings.current.autoCacheMb * 1024L * 1024L },
         dbProvider,
     )
     private val downloadCache = SimpleCache(File(context.filesDir, "media_downloads"), NoOpCacheEvictor(), dbProvider)
@@ -132,6 +148,14 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     private val _downloading = MutableStateFlow<Map<String, Float>>(emptyMap())
     val downloading: StateFlow<Map<String, Float>> = _downloading.asStateFlow()
+
+    /** Общий прогресс текущей пачки загрузок (null — ничего не качается). */
+    private val _downloadBatch = MutableStateFlow<DownloadBatch?>(null)
+    val downloadBatch: StateFlow<DownloadBatch?> = _downloadBatch.asStateFlow()
+    private val pendingDownloads = ArrayDeque<Track>()
+    private var downloadWorker: Job? = null
+    @Volatile private var currentWriter: CacheWriter? = null
+    @Volatile private var cancelRequested = false
     val downloadedKeys: StateFlow<Set<String>> = graph.db.downloads().observeAll()
         .map { list -> list.map { it.trackKey }.toSet() }
         .stateIn(scope, SharingStarted.Eagerly, emptySet())
@@ -430,29 +454,91 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     // ---------- Загрузки и кеш ----------
 
+    /**
+     * Ставит треки в очередь загрузки. Очередь одна на всё приложение: можно добавлять плейлисты,
+     * пока скачивается другой, — общий прогресс считается по всем.
+     */
     fun download(tracks: List<Track>) {
-        val todo = tracks.filter { it.key !in downloadedKeys.value && it.key !in _downloading.value }
-        if (todo.isEmpty()) return
+        val queued = pendingDownloads.mapTo(HashSet()) { it.key }
+        val todo = tracks.distinctBy { it.key }
+            .filter { it.key !in downloadedKeys.value && it.key !in _downloading.value && it.key !in queued }
+        if (todo.isEmpty()) {
+            if (tracks.size > 1) notify("Всё уже скачано")
+            return
+        }
+        pendingDownloads.addAll(todo)
         _downloading.update { m -> m + todo.associate { it.key to 0f } }
-        scope.launch {
-            for (t in todo) {
-                try {
-                    val bytes = withContext(Dispatchers.IO) {
-                        var total = 0L
-                        CacheWriter(downloadFactory.createDataSource(), DataSpec(StreamResolver.uriFor(t)), null) { length, cached, _ ->
-                            total = cached
-                            if (length > 0) _downloading.update { it + (t.key to cached.toFloat() / length) }
-                        }.cache()
-                        total
+        _downloadBatch.update { b ->
+            val base = b?.takeIf { it.active } ?: DownloadBatch()
+            base.copy(total = base.total + todo.size)
+        }
+        DownloadService.start(appContext)
+        if (downloadWorker?.isActive != true) downloadWorker = scope.launch { runDownloadQueue() }
+    }
+
+    /** Отменяет текущую и все ожидающие загрузки (уже скачанное остаётся). */
+    fun cancelDownloads() {
+        if (_downloadBatch.value?.active != true) return
+        cancelRequested = true
+        val dropped = pendingDownloads.map { it.key }.toSet()
+        pendingDownloads.clear()
+        _downloading.update { it - dropped }
+        currentWriter?.cancel()
+    }
+
+    private suspend fun runDownloadQueue() {
+        while (true) {
+            val t = pendingDownloads.removeFirstOrNull() ?: break
+            _downloadBatch.update { it?.copy(currentTitle = t.title, currentProgress = 0f) }
+            var ok = false
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    var total = 0L
+                    val writer = CacheWriter(downloadFactory.createDataSource(), DataSpec(StreamResolver.uriFor(t)), null) { length, cached, _ ->
+                        total = cached
+                        if (length > 0) {
+                            val f = cached.toFloat() / length
+                            _downloading.update { it + (t.key to f) }
+                            _downloadBatch.update { it?.copy(currentProgress = f) }
+                        }
                     }
-                    graph.db.downloads().put(DownloadedTrack(t.key, t.toJson(), System.currentTimeMillis(), bytes))
-                } catch (e: Exception) {
-                    _messages.emit("Не скачалось «${t.title}»: ${e.message}")
-                } finally {
-                    _downloading.update { it - t.key }
+                    currentWriter = writer
+                    writer.cache()
+                    total
                 }
+                graph.db.downloads().put(DownloadedTrack(t.key, t.toJson(), System.currentTimeMillis(), bytes))
+                ok = true
+            } catch (e: Exception) {
+                if (cancelRequested) {
+                    // Недокачанный кусок не нужен
+                    withContext(Dispatchers.IO) { runCatching { downloadCache.removeResource(t.key) } }
+                } else {
+                    _messages.emit("Не скачалось «${t.title}»: ${e.message}")
+                }
+            } finally {
+                currentWriter = null
+                _downloading.update { it - t.key }
             }
-            if (todo.size > 1) _messages.emit("Загрузка завершена")
+            if (cancelRequested) break
+            _downloadBatch.update { b -> b?.copy(done = b.done + if (ok) 1 else 0, failed = b.failed + if (ok) 0 else 1, currentProgress = 0f) }
+        }
+
+        val b = _downloadBatch.value
+        when {
+            cancelRequested -> _messages.emit("Загрузка отменена")
+            b != null && b.total > 1 -> _messages.emit(if (b.failed == 0) "Скачано треков: ${b.done}" else "Скачано: ${b.done}, не удалось: ${b.failed}")
+        }
+        if (cancelRequested) {
+            // После отмены плашку убираем сразу — показывать «Скачано N из N» тут нечего
+            cancelRequested = false
+            _downloadBatch.value = null
+            return
+        }
+        // Даём полоске показать 100%, потом убираем (если за это время не добавили новых)
+        _downloadBatch.update { it?.copy(currentTitle = null) }
+        scope.launch {
+            delay(1500)
+            if (downloadWorker?.isActive != true && pendingDownloads.isEmpty()) _downloadBatch.value = null
         }
     }
 

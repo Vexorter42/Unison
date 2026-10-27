@@ -1,5 +1,6 @@
 package com.musichub.ui.screens
 
+import android.os.StatFs
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
@@ -68,7 +69,7 @@ import com.musichub.data.Quality
 import com.musichub.net.HappRouting
 import kotlinx.coroutines.launch
 
-private val cacheSizes = listOf(512, 1024, 2048, 4096, 8192)
+private val cacheSizes = listOf(1024, 2048, 4096, 8192, 16384, 32768, 65536)
 
 @Composable
 fun SettingsScreen(nav: NavController) {
@@ -242,14 +243,17 @@ fun SettingsScreen(nav: NavController) {
         }
 
         Group("Кеш и загрузки")
-        val sizeIndex = cacheSizes.indexOf(s.autoCacheMb).coerceAtLeast(0)
+        // Ближайший вариант к сохранённому (раньше были и другие размеры)
+        val sizeIndex = cacheSizes.indices.minBy { kotlin.math.abs(cacheSizes[it] - s.autoCacheMb) }
         SliderRow(
-            "Авто-кеш: до ${formatMb(s.autoCacheMb.toLong())} (применится после перезапуска)",
+            "Авто-кеш: до ${formatMb(s.autoCacheMb.toLong())}",
             sizeIndex.toFloat(), 0f..(cacheSizes.size - 1).toFloat(), steps = cacheSizes.size - 2,
         ) { v -> update { it.copy(autoCacheMb = cacheSizes[v.toInt()]) } }
         usage?.let { (auto, downloads) ->
+            val free = remember(usage) { runCatching { StatFs(context.cacheDir.path).availableBytes }.getOrDefault(0L) }
             Text(
-                "Занято кешем: ${formatMb(auto / 1_048_576)} · скачано: ${formatMb(downloads / 1_048_576)}",
+                "Занято кешем: ${formatMb(auto / 1_048_576)} · скачано: ${formatMb(downloads / 1_048_576)} · " +
+                    "свободно на телефоне: ${formatMb(free / 1_048_576)}",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )

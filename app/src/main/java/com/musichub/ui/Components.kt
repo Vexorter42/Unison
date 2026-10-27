@@ -1,5 +1,6 @@
 package com.musichub.ui
 
+import androidx.compose.material.icons.rounded.Close
 import com.musichub.ui.theme.LocalPalette
 import android.net.Uri
 import android.widget.Toast
@@ -325,5 +326,46 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier, action: (@Composab
     Row(modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         action?.invoke()
+    }
+}
+
+/** Плашка над мини-плеером: общий прогресс скачивания с кнопкой отмены. */
+@Composable
+fun DownloadPill(backdrop: Backdrop?) {
+    val engine = App.graph.engine
+    val batch by engine.downloadBatch.collectAsStateWithLifecycle()
+    val b = batch ?: return
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .height(50.dp)
+            .liquidCapsule(backdrop),
+    ) {
+        Row(Modifier.fillMaxSize().padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(
+                progress = { b.progress },
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.5.dp,
+                color = Color.White,
+                trackColor = Color.White.copy(alpha = 0.2f),
+            )
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(
+                    if (b.active) "Скачиваю ${minOf(b.finished + 1, b.total)} из ${b.total} · ${(b.progress * 100).toInt()}%"
+                    else "Скачано ${b.done} из ${b.total}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+                b.currentTitle?.let {
+                    Text(it, fontSize = 11.sp, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (b.active) {
+                IconButton(onClick = engine::cancelDownloads) { Icon(Icons.Rounded.Close, "Отменить загрузку", tint = Color.White) }
+            }
+        }
     }
 }
