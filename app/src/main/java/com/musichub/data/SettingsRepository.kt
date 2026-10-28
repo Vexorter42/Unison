@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
+@kotlinx.serialization.Serializable
 enum class Quality(val label: String) {
     HIGH("Высокое"),
     NORMAL("Обычное"),
@@ -50,9 +51,15 @@ data class AppSettings(
     val liquidGlass: Boolean = true,
     /** Индекс палитры из ui.theme.Palettes. */
     val palette: Int = 0,
+    /** Цвета экрана берутся из обложки текущего трека (поверх выбранной палитры). */
+    val coverTheme: Boolean = true,
+    /** Сессия YouTube Music (cookie после входа) и имя аккаунта. */
+    val ytCookie: String? = null,
+    val ytAccountName: String? = null,
 ) {
     val yandexLoggedIn: Boolean get() = yandexToken != null && yandexUid != null
     val vkLoggedIn: Boolean get() = vkToken != null && vkUserId != null
+    val ytLoggedIn: Boolean get() = ytCookie?.contains("SAPISID") == true
 }
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
@@ -82,6 +89,9 @@ class SettingsRepository(private val context: Context) {
         val bypass = booleanPreferencesKey("direct_bypass_vpn")
         val liquid = booleanPreferencesKey("liquid_glass")
         val palette = intPreferencesKey("palette")
+        val coverTheme = booleanPreferencesKey("cover_theme")
+        val ytCookie = stringPreferencesKey("yt_cookie")
+        val ytName = stringPreferencesKey("yt_name")
     }
 
     // Читаем один раз при старте: настройки нужны синхронно (например, при получении ссылки на поток)
@@ -121,6 +131,9 @@ class SettingsRepository(private val context: Context) {
         directBypassVpn = p[Keys.bypass] ?: false,
         liquidGlass = p[Keys.liquid] ?: true,
         palette = p[Keys.palette] ?: 0,
+        coverTheme = p[Keys.coverTheme] ?: true,
+        ytCookie = p[Keys.ytCookie],
+        ytAccountName = p[Keys.ytName],
     )
 
     private fun write(p: MutablePreferences, s: AppSettings) {
@@ -147,6 +160,9 @@ class SettingsRepository(private val context: Context) {
         p[Keys.bypass] = s.directBypassVpn
         p[Keys.liquid] = s.liquidGlass
         p[Keys.palette] = s.palette
+        p[Keys.coverTheme] = s.coverTheme
+        p.putOrRemove(Keys.ytCookie, s.ytCookie)
+        p.putOrRemove(Keys.ytName, s.ytAccountName)
     }
 
     private fun <T> MutablePreferences.putOrRemove(key: Preferences.Key<T>, value: T?) {

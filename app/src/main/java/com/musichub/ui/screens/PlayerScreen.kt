@@ -2,23 +2,15 @@
 
 package com.musichub.ui.screens
 
-import kotlinx.coroutines.launch
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.background
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Animatable
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +30,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -50,6 +43,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -72,13 +66,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,13 +93,14 @@ import com.musichub.ui.Cover
 import com.musichub.ui.CoverBackdrop
 import com.musichub.ui.SourceBadge
 import com.musichub.util.formatTime
+import kotlinx.coroutines.launch
 
 @Composable
 fun PlayerScreen(onBack: () -> Unit) {
     val graph = App.graph
     val engine = graph.engine
     val state by engine.state.collectAsStateWithLifecycle()
-    val liked by graph.yandex.likedIds.collectAsStateWithLifecycle()
+    val liked by graph.favorites.keys.collectAsStateWithLifecycle()
     val downloaded by engine.downloadedKeys.collectAsStateWithLifecycle()
     var showLyrics by rememberSaveable { mutableStateOf(false) }
     var sleepDialog by remember { mutableStateOf(false) }
@@ -172,7 +173,7 @@ fun PlayerScreen(onBack: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { dismiss() }) { Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть") }
             Text(
-                if (state.waveMode) "Моя волна" else "Сейчас играет",
+                state.radioTitle ?: "Сейчас играет",
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.titleSmall,
@@ -252,7 +253,7 @@ fun PlayerScreen(onBack: () -> Unit) {
 
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             IconButton(onClick = engine::dislike) { Icon(Icons.Rounded.ThumbDown, "Не нравится") }
-            val isLiked = track.source == Source.YANDEX && track.yandexId in liked
+            val isLiked = track.key in liked
             IconButton(onClick = engine::toggleLike) {
                 Icon(if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Нравится", tint = if (isLiked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface)
             }
@@ -261,6 +262,7 @@ fun PlayerScreen(onBack: () -> Unit) {
             } else {
                 IconButton(onClick = { engine.download(listOf(track)) }) { Icon(Icons.Rounded.Download, "Скачать") }
             }
+            IconButton(onClick = { engine.startRadio(track) }) { Icon(Icons.Rounded.Radio, "Радио по треку") }
             IconButton(onClick = { queueSheet = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Очередь") }
         }
     }

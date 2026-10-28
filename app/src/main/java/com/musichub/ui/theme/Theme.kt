@@ -1,5 +1,7 @@
 package com.musichub.ui.theme
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -9,11 +11,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.musichub.App
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /** Цветовая палитра: три цвета градиента. Из них строятся фон, «Моя волна», переключатели и акцент. */
 data class Palette(val name: String, val a: Color, val b: Color, val c: Color) {
@@ -66,8 +73,23 @@ private val AppShapes = Shapes(
 
 @Composable
 fun MusicHubTheme(content: @Composable () -> Unit) {
-    val settings by App.graph.settings.flow.collectAsState()
-    val palette = Palettes.getOrElse(settings.palette) { Palettes[0] }
+    val graph = App.graph
+    val settings by graph.settings.flow.collectAsState()
+    val chosen = Palettes.getOrElse(settings.palette) { Palettes[0] }
+
+    // «Цвета из обложки»: палитра берётся из обложки текущего трека и плавно перетекает при смене
+    val context = LocalContext.current
+    val cover by remember { graph.engine.state.map { it.track?.coverUrl }.distinctUntilChanged() }.collectAsState(null)
+    val fromCover by produceState<Palette?>(null, cover, settings.coverTheme) {
+        value = cover?.takeIf { settings.coverTheme }?.let { runCatching { CoverColors.extract(context, it) }.getOrNull() }
+    }
+    val target = fromCover ?: chosen
+    val spec = tween<Color>(durationMillis = 900)
+    val a by animateColorAsState(target.a, spec, label = "a")
+    val b by animateColorAsState(target.b, spec, label = "b")
+    val c by animateColorAsState(target.c, spec, label = "c")
+    val palette = Palette(target.name, a, b, c)
+
     CompositionLocalProvider(LocalPalette provides palette) {
         MaterialTheme(
             // Как в Liner — тёмная тема всегда: на ней «стекло» и размытые обложки смотрятся правильно

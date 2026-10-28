@@ -2,19 +2,13 @@
 
 package com.musichub.ui.screens
 
-import androidx.core.net.toUri
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.material3.OutlinedButton
-import android.webkit.WebResourceError
-import android.webkit.WebChromeClient
-import android.webkit.CookieManager
-import android.content.Intent
-import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.TopAppBarDefaults
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -34,22 +28,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import com.musichub.App
 import com.musichub.vk.VkApi
 import com.musichub.yandex.YandexApi
+import com.musichub.youtube.YtMusicApi
 import kotlinx.coroutines.launch
 
 /**
@@ -61,6 +64,7 @@ import kotlinx.coroutines.launch
 fun LoginScreen(service: String, onDone: () -> Unit) {
     val graph = App.graph
     val isVk = service == "vk"
+    val isYt = service == "yt"
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -74,7 +78,11 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
         status = null
         scope.launch {
             try {
-                if (isVk) {
+                if (isYt) {
+                    // Для YouTube «токен» — это cookie сессии music.youtube.com
+                    val name = graph.ytMusic.accountName(token)
+                    graph.settings.update { it.copy(ytCookie = token, ytAccountName = name) }
+                } else if (isVk) {
                     val (id, name) = graph.vk.profile(token)
                     graph.settings.update { it.copy(vkToken = token, vkUserId = id, vkName = name) }
                 } else {
@@ -93,7 +101,7 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         TopAppBar(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            title = { Text(if (isVk) "Вход во ВКонтакте" else "Вход в Яндекс") },
+            title = { Text(if (isYt) "Вход в YouTube Music" else if (isVk) "Вход во ВКонтакте" else "Вход в Яндекс") },
             navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
         )
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -106,7 +114,16 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
-        val oauthUrl = if (isVk) VkApi.OAUTH_URL else YandexApi.OAUTH_URL
+        if (isYt) {
+            Text(
+                "Войдите в аккаунт Google — Unison прочитает ваши лайки, плейлисты и загруженные песни YouTube Music. " +
+                    "Пароль вводится на странице Google, приложение его не видит.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+        val oauthUrl = if (isYt) YtMusicApi.LOGIN_URL else if (isVk) VkApi.OAUTH_URL else YandexApi.OAUTH_URL
         if (pageProgress in 1..99) {
             LinearProgressIndicator(progress = { pageProgress / 100f }, modifier = Modifier.fillMaxWidth())
         }
@@ -126,6 +143,10 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
                     settings.loadWithOverviewMode = true
                     settings.useWideViewPort = true
                     settings.userAgentString = settings.userAgentString.replace("; wv", "").replace(Regex("""Version/\S+\s"""), "")
+                    // Google не любит встроенные браузеры: убираем заголовок, по которому их узнают
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                        WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet())
+                    }
                     webChromeClient = object : WebChromeClient() {
                         override fun onProgressChanged(view: WebView, newProgress: Int) {
                             pageProgress = newProgress
@@ -143,6 +164,14 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
                             check(url)
                         }
 
+                        override fun onPageFinished(view: WebView, url: String) {
+                            // YouTube: вход завершён, когда нас вернуло на music.youtube.com с сессией
+                            if (isYt && Uri.parse(url).host == "music.youtube.com") {
+                                val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
+                                if ("SAPISID" in cookie) finish(cookie)
+                            }
+                        }
+
                         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                             if (request.isForMainFrame) {
                                 status = "Страница не загрузилась: ${error.description}. Попробуйте «Открыть в браузере»."
@@ -150,6 +179,7 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
                         }
 
                         fun check(url: String): Boolean {
+                            if (isYt) return false
                             val token = extractToken(url) ?: return false
                             finish(token)
                             return true
@@ -160,8 +190,14 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
             },
         )
         Text(
-            "Если страница пустая: откройте вход в браузере, войдите, а затем скопируйте адрес страницы " +
-                "(oauth…blank.html#access_token=…) или сам токен и вставьте сюда.",
+            if (isYt) {
+                "Если Google пишет, что браузер или приложение небезопасны: войдите в music.youtube.com на компьютере, " +
+                    "откройте инструменты разработчика (F12) → Сеть → любой запрос к music.youtube.com → скопируйте " +
+                    "значение заголовка Cookie и вставьте сюда."
+            } else {
+                "Если страница пустая: откройте вход в браузере, войдите, а затем скопируйте адрес страницы " +
+                    "(oauth…blank.html#access_token=…) или сам токен и вставьте сюда."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
@@ -170,22 +206,24 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
             OutlinedTextField(
                 value = manual,
                 onValueChange = { manual = it },
-                label = { Text("Токен или адрес страницы") },
+                label = { Text(if (isYt) "Cookie с music.youtube.com" else "Токен или адрес страницы") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
             Button(
-                onClick = { finish(extractToken(manual.trim()) ?: manual.trim()) },
+                onClick = { finish(if (isYt) manual.trim().removePrefix("Cookie:").trim() else extractToken(manual.trim()) ?: manual.trim()) },
                 enabled = manual.isNotBlank() && !busy,
                 modifier = Modifier.padding(start = 8.dp),
             ) { Text("OK") }
         }
-        OutlinedButton(
-            onClick = {
-                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, oauthUrl.toUri())) }
-            },
-            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-        ) { Text("Открыть в браузере") }
+        if (!isYt) {
+            OutlinedButton(
+                onClick = {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, oauthUrl.toUri())) }
+                },
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+            ) { Text("Открыть в браузере") }
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 package com.musichub.ui
 
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -75,6 +75,15 @@ fun MusicHubApp() {
         engine.messages.collect { msg -> launch { snackbar.showSnackbar(msg) } }
     }
     UpdateDialog()
+
+    // Ссылка, пришедшая из другого приложения, — открываем, как только навигация готова
+    val pendingLink by graph.pendingLink.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingLink) {
+        pendingLink?.let {
+            graph.pendingLink.value = null
+            nav.openTracks(it.kind, it.arg, it.title)
+        }
+    }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     val tabIndex = tabRoutes.indexOf(route)

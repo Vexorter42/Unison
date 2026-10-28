@@ -35,6 +35,8 @@ class YouTubeApi {
         return extractor.initialPage.items.mapNotNull { it.toTrack() }
     }
 
+    suspend fun findMatch(target: Track): Track? = io { findMatchBlocking(target) }
+
     /** Ищет на YouTube тот же трек, что и [target] (для замены и микса). */
     fun findMatchBlocking(target: Track): Track? {
         val q = TrackMatcher.splitYoutube(target)
@@ -55,7 +57,20 @@ class YouTubeApi {
         return pick.content
     }
 
-    /** Похожие треки (для подмешивания в Мою волну). */
+    /** Один трек по videoId (для ссылок вида youtube.com/watch?v=…). */
+    suspend fun track(videoId: String): Track? = io {
+        val info = StreamInfo.getInfo(service, watchUrl(videoId))
+        Track(
+            source = Source.YOUTUBE,
+            sourceId = videoId,
+            title = info.name,
+            artists = info.uploaderName?.removeSuffix(" - Topic")?.ifBlank { null } ?: "YouTube",
+            durationMs = info.duration * 1000,
+            coverUrl = bestThumb(info.thumbnails),
+        )
+    }
+
+    /** Похожие треки (для подмешивания в Мою волну и радио). */
     suspend fun related(videoId: String): List<Track> = io {
         StreamInfo.getInfo(service, watchUrl(videoId)).relatedItems
             .filter { it is StreamInfoItem && it.duration in 60..900 }

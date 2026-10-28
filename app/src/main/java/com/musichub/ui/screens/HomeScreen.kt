@@ -1,10 +1,5 @@
 package com.musichub.ui.screens
 
-import com.musichub.ui.theme.LocalPalette
-import com.musichub.ui.liquid.liquidClickable
-import com.musichub.ui.liquid.glass
-import com.musichub.ui.icons.UnisonIcons
-import com.musichub.ui.liquid.LocalBottomInset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -26,9 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
-import com.musichub.ui.liquid.GlassPanel
 import androidx.compose.material3.FilledIconButton
-import com.musichub.ui.GlassChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -52,8 +45,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.musichub.App
 import com.musichub.data.model.Track
+import com.musichub.ui.GlassChip
 import com.musichub.ui.SectionTitle
 import com.musichub.ui.TrackRow
+import com.musichub.ui.icons.UnisonIcons
+import com.musichub.ui.liquid.GlassPanel
+import com.musichub.ui.liquid.LocalBottomInset
+import com.musichub.ui.liquid.glass
+import com.musichub.ui.liquid.liquidClickable
+import com.musichub.ui.theme.LocalPalette
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 

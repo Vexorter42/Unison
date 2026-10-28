@@ -22,7 +22,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -51,11 +50,11 @@ class PlaybackService : MediaSessionService() {
             .setMediaButtonPreferences(buttons(liked = false))
             .build()
 
-        // Сердечко в уведомлении закрашено, если текущий трек уже в «Мне нравится»
+        // Сердечко в уведомлении закрашено, если текущий трек уже в «Любимом»
         scope.launch {
-            combine(graph.engine.state.map { it.track }.distinctUntilChanged(), graph.yandex.likedIds) { track, liked ->
-                track?.yandexId?.let { it in liked } ?: false
-            }.distinctUntilChanged().collect { liked -> session?.setMediaButtonPreferences(buttons(liked)) }
+            combine(graph.engine.currentKey, graph.favorites.keys) { key, liked -> key != null && key in liked }
+                .distinctUntilChanged()
+                .collect { liked -> session?.setMediaButtonPreferences(buttons(liked)) }
         }
     }
 
@@ -66,7 +65,7 @@ class PlaybackService : MediaSessionService() {
             .setSlots(CommandButton.SLOT_OVERFLOW)
             .build(),
         CommandButton.Builder(if (liked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
-            .setDisplayName(if (liked) "Убрать из «Мне нравится»" else "Нравится")
+            .setDisplayName(if (liked) "Убрать из «Любимого»" else "В «Любимое»")
             .setSessionCommand(LIKE)
             .setSlots(CommandButton.SLOT_OVERFLOW)
             .build(),

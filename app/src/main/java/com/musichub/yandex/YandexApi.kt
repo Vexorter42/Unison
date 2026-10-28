@@ -24,10 +24,10 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import okhttp3.Call
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Call
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -185,8 +185,27 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
         get("/users/$uid/playlists/list").arr().mapNotNull { parsePlaylist(it.obj()) }
     }
 
-    suspend fun playlistTracks(owner: Long, kind: Long): List<Track> = io {
-        val items = get("/users/$owner/playlists/$kind", mapOf("rich-tracks" to "true")).obj()?.get("tracks").arr()
+    /** [owner] — uid или логин (в ссылках из «Поделиться» бывает логин). */
+    suspend fun playlistTracks(owner: String, kind: Long): List<Track> = io {
+        tracksOfPlaylist(get("/users/$owner/playlists/$kind", mapOf("rich-tracks" to "true")).obj())
+    }
+
+    /** Плейлист по новой ссылке вида music.yandex.ru/playlists/<uuid>. */
+    suspend fun playlistByUuid(uuid: String): List<Track> = io {
+        tracksOfPlaylist(get("/playlist/$uuid", mapOf("rich-tracks" to "true")).obj())
+    }
+
+    suspend fun albumTracks(albumId: String): List<Track> = io {
+        get("/albums/$albumId/with-tracks").obj()?.get("volumes").arr()
+            .flatMap { it.arr() }
+            .mapNotNull { it.obj()?.let(::parseTrack) }
+    }
+
+    /** Треки по id вида "trackId:albumId" (или просто trackId). */
+    suspend fun tracksById(ids: List<String>): List<Track> = io { fetchTracks(ids) }
+
+    private fun tracksOfPlaylist(playlist: JsonObject?): List<Track> {
+        val items = playlist?.get("tracks").arr()
         val result = mutableListOf<Track>()
         val missing = mutableListOf<String>()
         for (el in items) {
@@ -196,7 +215,7 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
             else o.str("id")?.let { id -> missing += o.str("albumId")?.let { "$id:$it" } ?: id }
         }
         if (missing.isNotEmpty()) result += fetchTracks(missing)
-        result
+        return result
     }
 
     suspend fun setLiked(track: Track, liked: Boolean) = io {
@@ -241,12 +260,15 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
 
     // ---------- Моя волна ----------
 
-    suspend fun waveTracks(lastTrackId: String?): WaveBatch = io {
+    suspend fun waveTracks(lastTrackId: String?): WaveBatch = stationTracks(WAVE, lastTrackId)
+
+    /** Треки любой станции: "user:onyourwave" — Моя волна, "track:<id>" — радио по треку. */
+    suspend fun stationTracks(station: String, lastTrackId: String?): WaveBatch = io {
         val params = buildMap {
             put("settings2", "true")
             if (lastTrackId != null) put("queue", lastTrackId)
         }
-        val r = get("/rotor/station/$WAVE/tracks", params).obj()
+        val r = get("/rotor/station/$station/tracks", params).obj()
         WaveBatch(
             batchId = r?.str("batchId"),
             tracks = r?.get("sequence").arr().mapNotNull { it.obj()?.get("track").obj()?.let(::parseTrack) },
@@ -254,17 +276,17 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
     }
 
     /** Отзывы для волны: radioStarted / trackStarted / trackFinished / skip. Ошибки игнорируем. */
-    suspend fun waveFeedback(type: String, batchId: String?, trackId: String? = null, playedSec: Double? = null) {
+    suspend fun waveFeedback(type: String, batchId: String?, trackId: String? = null, playedSec: Double? = null, station: String = WAVE) {
         io {
             runCatching {
                 val body = buildJsonObject {
                     put("type", type)
                     put("timestamp", System.currentTimeMillis() / 1000.0)
-                    if (type == "radioStarted") put("from", "mobile-radio-user-onyourwave")
+                    if (type == "radioStarted") put("from", "mobile-radio-${station.replace(':', '-')}")
                     trackId?.let { put("trackId", it) }
                     playedSec?.let { put("totalPlayedSeconds", it) }
                 }
-                postJson("/rotor/station/$WAVE/feedback", body, batchId?.let { mapOf("batch-id" to it) } ?: emptyMap())
+                postJson("/rotor/station/$station/feedback", body, batchId?.let { mapOf("batch-id" to it) } ?: emptyMap())
             }
         }
     }

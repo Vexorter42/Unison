@@ -1,6 +1,7 @@
 package com.musichub.transfer
 
 import com.musichub.AppGraph
+import com.musichub.data.model.Source
 import com.musichub.data.model.Track
 import com.musichub.search.TrackMatcher
 import kotlinx.coroutines.CancellationException
@@ -11,9 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class TransferTarget(val label: String) {
-    YANDEX("Новый плейлист в Яндекс Музыке"),
-    LOCAL("Мои плейлисты (в приложении)"),
+enum class TransferTarget(val label: String, val service: String) {
+    YANDEX("Новый плейлист в Яндекс Музыке", "Яндекс Музыке"),
+    YOUTUBE("Новый плейлист в YouTube Music", "YouTube Music"),
+    LOCAL("Мои плейлисты (в приложении)", "Unison"),
 }
 
 sealed interface TransferState {
@@ -24,7 +26,8 @@ sealed interface TransferState {
 }
 
 /**
- * Перенос плейлистов из YouTube / ВК в Яндекс Музыку или в свои плейлисты.
+ * Перенос плейлистов из любого сервиса в любой: Яндекс, YouTube Music или свои плейлисты.
+ * Каждый трек ищется в целевом сервисе по названию, исполнителю и длительности.
  * Работает в фоне приложения — можно уйти с экрана, прогресс сохранится.
  */
 class TransferRepository(private val graph: AppGraph) {
@@ -37,30 +40,39 @@ class TransferRepository(private val graph: AppGraph) {
         job?.cancel()
         job = graph.scope.launch {
             try {
-                if (target == TransferTarget.YANDEX && !graph.settings.current.yandexLoggedIn) {
-                    error("Сначала войдите в Яндекс в настройках")
-                }
+                val s = graph.settings.current
+                if (target == TransferTarget.YANDEX && !s.yandexLoggedIn) error("Сначала войдите в Яндекс в настройках")
+                if (target == TransferTarget.YOUTUBE && !s.ytLoggedIn) error("Сначала войдите в YouTube в настройках")
                 _state.value = TransferState.Working("Загружаю плейлист…", 0, 0)
                 val (name, tracks) = load()
                 if (tracks.isEmpty()) error("Плейлист пустой или недоступен")
 
+                // В свои плейлисты можно класть треки любого сервиса — ничего искать не нужно
+                if (target == TransferTarget.LOCAL) {
+                    val id = graph.library.create(name)
+                    graph.library.add(id, tracks)
+                    _state.value = TransferState.Done(name, tracks.size, tracks.size, emptyList(), target)
+                    return@launch
+                }
+
                 val matched = linkedMapOf<Int, Track>()
                 tracks.forEachIndexed { i, t ->
-                    _state.value = TransferState.Working("Ищу треки в Яндекс Музыке", i, tracks.size)
-                    findOnYandex(t)?.let { matched[i] = it }
-                    delay(120) // не долбим API слишком часто
+                    _state.value = TransferState.Working("Ищу треки в ${target.service}", i, tracks.size)
+                    val found = when (target) {
+                        TransferTarget.YANDEX -> findOnYandex(t)
+                        TransferTarget.YOUTUBE -> findOnYoutube(t)
+                        TransferTarget.LOCAL -> t
+                    }
+                    found?.let { matched[i] = it }
+                    if (found?.source != t.source) delay(120) // не долбим поиск слишком часто
                 }
                 val missing = tracks.filterIndexed { i, _ -> i !in matched }
 
                 _state.value = TransferState.Working("Сохраняю…", tracks.size, tracks.size)
                 when (target) {
                     TransferTarget.YANDEX -> graph.yandex.createPlaylist(name, matched.values.toList())
-                    TransferTarget.LOCAL -> {
-                        // Сохраняем порядок; что не нашлось в Яндексе — остаётся из исходного сервиса
-                        val ordered = tracks.mapIndexed { i, t -> matched[i] ?: t }
-                        val id = graph.library.create(name)
-                        graph.library.add(id, ordered)
-                    }
+                    TransferTarget.YOUTUBE -> graph.ytMusic.createPlaylist(name, matched.values.map { it.sourceId })
+                    TransferTarget.LOCAL -> Unit
                 }
                 _state.value = TransferState.Done(name, matched.size, tracks.size, missing, target)
             } catch (e: CancellationException) {
@@ -77,8 +89,20 @@ class TransferRepository(private val graph: AppGraph) {
     }
 
     private suspend fun findOnYandex(t: Track): Track? {
+        if (t.source == Source.YANDEX && ':' in t.sourceId) return t
+        t.alternates.firstOrNull { it.source == Source.YANDEX && ':' in it.sourceId }?.let {
+            return t.copy(source = Source.YANDEX, sourceId = it.sourceId, alternates = emptyList())
+        }
         val q = TrackMatcher.splitYoutube(t)
         val results = runCatching { graph.yandex.search("${q.artists} ${q.title}") }.getOrNull() ?: return null
         return TrackMatcher.best(q, results, threshold = 0.65)
+    }
+
+    private suspend fun findOnYoutube(t: Track): Track? {
+        if (t.source == Source.YOUTUBE) return t
+        t.alternates.firstOrNull { it.source == Source.YOUTUBE }?.let {
+            return t.copy(source = Source.YOUTUBE, sourceId = it.sourceId, alternates = emptyList())
+        }
+        return runCatching { graph.youtube.findMatch(t) }.getOrNull()
     }
 }

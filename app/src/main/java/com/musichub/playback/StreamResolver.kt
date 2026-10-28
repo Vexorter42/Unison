@@ -6,6 +6,7 @@ import com.musichub.AppGraph
 import com.musichub.data.Quality
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.local.LocalMusic
 import com.musichub.util.asIo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,7 @@ class StreamResolver(private val graph: AppGraph) {
         Source.YANDEX -> graph.yandex.streamUrlBlocking(id, q)
         Source.VK -> graph.vk.streamUrlBlocking(id)
         Source.YOUTUBE -> graph.youtube.streamUrlBlocking(id, q)
+        Source.LOCAL -> LocalMusic.contentUri(id).toString()
     }
 
     private fun fallback(uri: Uri, source: Source, q: Quality, cause: Exception): String {
@@ -87,7 +89,7 @@ class StreamResolver(private val graph: AppGraph) {
         /** Совпадает с [Track.key]. */
         fun cacheKey(uri: Uri): String = "${uri.authority}:${uri.lastPathSegment}"
 
-        fun uriFor(track: Track): Uri = Uri.Builder()
+        fun uriFor(track: Track): Uri = if (track.source == Source.LOCAL) LocalMusic.contentUri(track.sourceId) else Uri.Builder()
             .scheme(SCHEME)
             .authority(track.source.prefix)
             .appendPath(track.sourceId)

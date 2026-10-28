@@ -1,32 +1,21 @@
 package com.musichub.ui
 
-import androidx.compose.material.icons.rounded.Close
-import com.musichub.ui.theme.LocalPalette
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import com.kyant.backdrop.Backdrop
-import com.musichub.ui.liquid.liquidCapsule
-import com.musichub.ui.liquid.liquidClickable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -34,9 +23,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
@@ -58,7 +49,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,6 +59,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -76,11 +72,16 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import com.musichub.util.tracksCount
+import com.kyant.backdrop.Backdrop
 import com.musichub.App
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.links.Links
+import com.musichub.ui.liquid.liquidCapsule
+import com.musichub.ui.liquid.liquidClickable
+import com.musichub.ui.theme.LocalPalette
 import com.musichub.util.formatTime
+import com.musichub.util.tracksCount
 import kotlinx.coroutines.launch
 
 fun NavController.openTracks(kind: String, arg: String, title: String) =
@@ -108,6 +109,7 @@ fun SourceBadge(source: Source, highlighted: Boolean = true) {
         Source.YANDEX -> MaterialTheme.colorScheme.tertiary
         Source.VK -> MaterialTheme.colorScheme.primary
         Source.YOUTUBE -> MaterialTheme.colorScheme.error
+        Source.LOCAL -> MaterialTheme.colorScheme.secondary
     }
     Surface(
         color = if (highlighted) color.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
@@ -141,6 +143,8 @@ fun TrackRow(
     val currentKey by engine.currentKey.collectAsStateWithLifecycle()
     val downloaded by engine.downloadedKeys.collectAsStateWithLifecycle()
     val downloading by engine.downloading.collectAsStateWithLifecycle()
+    val favorites by App.graph.favorites.keys.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var addDialog by remember { mutableStateOf(false) }
     val isCurrent = currentKey == track.key
@@ -183,13 +187,23 @@ fun TrackRow(
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Ещё") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (track.key in favorites) "Убрать из «Любимого»" else "В «Любимое»") },
+                            onClick = { menu = false; engine.toggleLike(track) },
+                        )
+                        DropdownMenuItem(text = { Text("Радио по треку") }, onClick = { menu = false; engine.startRadio(track) })
                         DropdownMenuItem(text = { Text("Играть следующим") }, onClick = { menu = false; engine.playNext(track) })
                         DropdownMenuItem(text = { Text("В очередь") }, onClick = { menu = false; engine.enqueue(track) })
                         DropdownMenuItem(text = { Text("В мой плейлист…") }, onClick = { menu = false; addDialog = true })
-                        if (track.key in downloaded) {
+                        if (track.source == Source.LOCAL) {
+                            // Файл уже на телефоне — скачивать нечего
+                        } else if (track.key in downloaded) {
                             DropdownMenuItem(text = { Text("Удалить загрузку") }, onClick = { menu = false; engine.removeDownload(track) })
                         } else {
                             DropdownMenuItem(text = { Text("Скачать") }, onClick = { menu = false; engine.download(listOf(track)) })
+                        }
+                        Links.trackUrl(track)?.let { url ->
+                            DropdownMenuItem(text = { Text("Поделиться") }, onClick = { menu = false; shareTrack(context, track, url) })
                         }
                         extraActions.forEach { (label, action) ->
                             DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; action() })
@@ -368,4 +382,15 @@ fun DownloadPill(backdrop: Backdrop?) {
             }
         }
     }
+}
+
+/** «Поделиться» треком: исполнитель, название и ссылка на сервис. */
+fun shareTrack(context: android.content.Context, track: Track, url: String) {
+    val text = "${track.artists} — ${track.title}\n$url"
+    context.startActivity(
+        android.content.Intent.createChooser(
+            android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text),
+            "Поделиться",
+        ),
+    )
 }

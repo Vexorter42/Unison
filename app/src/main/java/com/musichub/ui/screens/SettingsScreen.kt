@@ -1,39 +1,35 @@
 package com.musichub.ui.screens
 
-import android.os.StatFs
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.border
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import com.musichub.ui.liquid.liquidClickable
-import com.musichub.ui.theme.Palettes
-import com.musichub.update.UpdateState
-import com.musichub.ui.liquid.LocalBottomInset
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.StatFs
 import android.webkit.CookieManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Button
-import com.musichub.ui.liquid.GlassPanel
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -42,7 +38,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import com.musichub.ui.liquid.LiquidSwitch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -67,7 +63,16 @@ import com.musichub.App
 import com.musichub.data.AppSettings
 import com.musichub.data.Quality
 import com.musichub.net.HappRouting
+import com.musichub.ui.liquid.GlassPanel
+import com.musichub.ui.liquid.LiquidSwitch
+import com.musichub.ui.liquid.LocalBottomInset
+import com.musichub.ui.liquid.liquidClickable
+import com.musichub.ui.theme.Palettes
+import com.musichub.update.UpdateState
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val cacheSizes = listOf(1024, 2048, 4096, 8192, 16384, 32768, 65536)
 
@@ -83,6 +88,23 @@ fun SettingsScreen(nav: NavController) {
     var usageReload by remember { mutableIntStateOf(0) }
     LaunchedEffect(usageReload) { usage = graph.engine.cacheUsage() }
     var diagnostics by remember { mutableStateOf<List<String>?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            val r = runCatching { graph.backup.export(uri) }
+            graph.engine.notify(r.fold({ "Копия сохранена" }, { "Не удалось сохранить: ${it.message}" }))
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val r = runCatching { graph.backup.restore(uri) }
+            graph.engine.notify(
+                r.fold(
+                    { "Восстановлено: плейлистов ${it.playlists}, в «Любимом» ${it.favorites}, прослушиваний ${it.stats}" },
+                    { "Не удалось восстановить: ${it.message}" },
+                ),
+            )
+        }
+    }
     var diagnosing by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = LocalBottomInset.current)) {
@@ -94,6 +116,11 @@ fun SettingsScreen(nav: NavController) {
             "Стекло с преломлением, живой фон и плавающий бар-капсула",
             s.liquidGlass,
         ) { v -> update { it.copy(liquidGlass = v) } }
+        SwitchRow(
+            "Цвета из обложки",
+            "Экран окрашивается в цвета трека, который играет. Без музыки — выбранная палитра",
+            s.coverTheme,
+        ) { v -> update { it.copy(coverTheme = v) } }
         Text("Цвет: ${Palettes.getOrElse(s.palette) { Palettes[0] }.name}", modifier = Modifier.padding(start = 16.dp, top = 4.dp))
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -119,6 +146,15 @@ fun SettingsScreen(nav: NavController) {
             onLogout = {
                 CookieManager.getInstance().removeAllCookies(null)
                 update { it.copy(yandexToken = null, yandexUid = null, yandexLogin = null) }
+            },
+        )
+        AccountRow(
+            title = "YouTube Music",
+            account = s.ytAccountName.takeIf { s.ytLoggedIn },
+            onLogin = { nav.navigate("login/yt") },
+            onLogout = {
+                CookieManager.getInstance().removeAllCookies(null)
+                update { it.copy(ytCookie = null, ytAccountName = null) }
             },
         )
         AccountRow(
@@ -264,6 +300,24 @@ fun SettingsScreen(nav: NavController) {
                 usageReload++
             }
         }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Очистить кеш (скачанное останется)") }
+
+        Group("Резервная копия")
+        Text(
+            "Свои плейлисты, «Любимое», статистика и настройки — в один файл. Входы в аккаунты в копию не попадают: " +
+                "после восстановления войдите заново.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                exportLauncher.launch("unison-backup-$date.json")
+            }) { Text("Сохранить копию") }
+            OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
+                Text("Восстановить")
+            }
+        }
 
         Group("Обновления")
         val updater = graph.updater

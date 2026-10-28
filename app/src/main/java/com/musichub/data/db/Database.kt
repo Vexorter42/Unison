@@ -9,9 +9,13 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 
 /** Одно прослушивание — основа статистики. */
+@Serializable
 @Entity(tableName = "play_events", indices = [Index("startedAt"), Index("trackKey")])
 data class PlayEvent(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -27,6 +31,7 @@ data class PlayEvent(
     val trackJson: String,
 )
 
+@Serializable
 @Entity(tableName = "playlists")
 data class LocalPlaylist(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -34,6 +39,7 @@ data class LocalPlaylist(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+@Serializable
 @Entity(tableName = "playlist_tracks", primaryKeys = ["playlistId", "trackKey"], indices = [Index("playlistId")])
 data class PlaylistTrack(
     val playlistId: Long,
@@ -48,6 +54,20 @@ data class DownloadedTrack(
     val trackJson: String,
     val downloadedAt: Long,
     val bytes: Long,
+)
+
+/**
+ * «Любимое Unison» — свои лайки приложения. В сервисы сами не уходят:
+ * sentYandex / sentYoutube отмечают, что трек уже отправлен туда кнопкой.
+ */
+@Serializable
+@Entity(tableName = "favorites")
+data class FavoriteTrack(
+    @PrimaryKey val trackKey: String,
+    val trackJson: String,
+    val addedAt: Long,
+    val sentYandex: Boolean = false,
+    val sentYoutube: Boolean = false,
 )
 
 data class LocalPlaylistInfo(val id: Long, val name: String, val count: Int)
@@ -95,6 +115,12 @@ interface StatsDao {
             "ORDER BY startedAt DESC LIMIT :limit"
     )
     fun recent(limit: Int): Flow<List<PlayEvent>>
+
+    @Query("SELECT * FROM play_events")
+    suspend fun all(): List<PlayEvent>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(events: List<PlayEvent>)
 }
 
 @Dao
@@ -107,6 +133,9 @@ interface PlaylistDao {
 
     @Insert
     suspend fun create(p: LocalPlaylist): Long
+
+    @Query("SELECT * FROM playlists ORDER BY createdAt")
+    suspend fun allPlaylists(): List<LocalPlaylist>
 
     @Query("DELETE FROM playlists WHERE id = :id")
     suspend fun delete(id: Long)
@@ -139,13 +168,48 @@ interface DownloadDao {
     suspend fun delete(key: String)
 }
 
+@Dao
+interface FavoriteDao {
+    @Query("SELECT * FROM favorites ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<FavoriteTrack>>
+
+    @Query("SELECT * FROM favorites ORDER BY addedAt DESC")
+    suspend fun all(): List<FavoriteTrack>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(items: List<FavoriteTrack>)
+
+    @Query("DELETE FROM favorites WHERE trackKey = :key")
+    suspend fun delete(key: String)
+
+    @Query("UPDATE favorites SET sentYandex = 1 WHERE trackKey IN (:keys)")
+    suspend fun markSentYandex(keys: List<String>)
+
+    @Query("UPDATE favorites SET sentYoutube = 1 WHERE trackKey IN (:keys)")
+    suspend fun markSentYoutube(keys: List<String>)
+}
+
 @Database(
-    entities = [PlayEvent::class, LocalPlaylist::class, PlaylistTrack::class, DownloadedTrack::class],
-    version = 1,
+    entities = [PlayEvent::class, LocalPlaylist::class, PlaylistTrack::class, DownloadedTrack::class, FavoriteTrack::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun stats(): StatsDao
     abstract fun playlists(): PlaylistDao
     abstract fun downloads(): DownloadDao
+    abstract fun favorites(): FavoriteDao
+
+    companion object {
+        /** 1 → 2: таблица «Любимое Unison». Остальные данные не трогаем. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `favorites` (`trackKey` TEXT NOT NULL, `trackJson` TEXT NOT NULL, " +
+                        "`addedAt` INTEGER NOT NULL, `sentYandex` INTEGER NOT NULL, `sentYoutube` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`trackKey`))",
+                )
+            }
+        }
+    }
 }

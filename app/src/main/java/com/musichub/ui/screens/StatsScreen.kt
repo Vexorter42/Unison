@@ -1,6 +1,5 @@
 package com.musichub.ui.screens
 
-import com.musichub.ui.liquid.LocalBottomInset
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,10 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import com.musichub.ui.liquid.GlassPanel
 import androidx.compose.material3.CircularProgressIndicator
-import com.musichub.util.plural
-import com.musichub.ui.GlassChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,6 +39,10 @@ import com.musichub.data.db.TopArtistRow
 import com.musichub.data.db.TopTrackRow
 import com.musichub.data.db.Totals
 import com.musichub.data.model.Source
+import com.musichub.ui.GlassChip
+import com.musichub.ui.liquid.GlassPanel
+import com.musichub.ui.liquid.LocalBottomInset
+import com.musichub.util.plural
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar

@@ -1,6 +1,5 @@
 package com.musichub.ui.screens
 
-import com.musichub.ui.liquid.LocalBottomInset
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -22,11 +21,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
-import com.musichub.ui.liquid.GlassPanel
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -48,25 +49,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import com.musichub.util.tracksCount
 import com.musichub.App
 import com.musichub.data.db.LocalPlaylistInfo
+import com.musichub.links.Links
 import com.musichub.ui.Cover
 import com.musichub.ui.GeneratedCover
 import com.musichub.ui.GlassChip
 import com.musichub.ui.PrimaryPill
+import com.musichub.ui.liquid.GlassPanel
+import com.musichub.ui.liquid.LocalBottomInset
 import com.musichub.ui.openTracks
+import com.musichub.util.tracksCount
 import com.musichub.vk.VkPlaylist
 import com.musichub.yandex.YaPlaylist
+import com.musichub.youtube.YtPlaylist
 import kotlinx.coroutines.launch
 
-private enum class LibFilter(val label: String) { ALL("Все"), YANDEX("Яндекс"), VK("ВКонтакте"), MINE("Мои") }
+private enum class LibFilter(val label: String) { ALL("Все"), MINE("Мои"), YANDEX("Яндекс"), YOUTUBE("YouTube"), VK("ВКонтакте") }
 
 private val Violet = Color(0xFF7A4DFF)
 private val Blue = Color(0xFF4D71FF)
 private val Teal = Color(0xFF2EC4B6)
 private val Green = Color(0xFF3DDC97)
 private val Orange = Color(0xFFFF8A4D)
+private val Pink = Color(0xFFFF4D8D)
+private val Red = Color(0xFFFF3D3D)
 
 @Composable
 fun LibraryScreen(nav: NavController) {
@@ -84,6 +91,11 @@ fun LibraryScreen(nav: NavController) {
     val vkPlaylists by produceState<Result<List<VkPlaylist>>?>(null, settings.vkUserId) {
         value = if (settings.vkLoggedIn) runCatching { graph.vk.playlists() } else null
     }
+    val ytPlaylists by produceState<Result<List<YtPlaylist>>?>(null, settings.ytCookie) {
+        value = if (settings.ytLoggedIn) runCatching { graph.ytMusic.playlists() } else null
+    }
+    val favoritesCount by graph.favorites.keys.collectAsStateWithLifecycle()
+    var linkDialog by remember { mutableStateOf(false) }
     val show = { f: LibFilter -> filter == LibFilter.ALL || filter == f }
 
     LazyVerticalGrid(
@@ -102,6 +114,16 @@ fun LibraryScreen(nav: NavController) {
             }
         }
 
+        if (show(LibFilter.MINE)) {
+            item {
+                GeneratedTile("Любимое", "${tracksCount(favoritesCount.size)} · Unison", Icons.Rounded.Favorite, Pink) {
+                    nav.openTracks("favorites", "-", "Любимое")
+                }
+            }
+            item { GeneratedTile("На телефоне", "Музыка из файлов", Icons.Rounded.PhoneAndroid, Teal) { nav.openTracks("files", "-", "На телефоне") } }
+            item { GeneratedTile("По ссылке", "Яндекс, YouTube, ВК", Icons.Rounded.Link, Blue) { linkDialog = true } }
+        }
+
         if (show(LibFilter.YANDEX)) {
             if (!settings.yandexLoggedIn) {
                 fullLine { LoginCard("Яндекс Музыка", "Моя волна, лайки и плейлисты") { nav.navigate("login/ya") } }
@@ -112,6 +134,19 @@ fun LibraryScreen(nav: NavController) {
                     CoverTile(p.coverUrl, p.title, "${tracksCount(p.trackCount)} · Яндекс") {
                         nav.openTracks("yapl", "${p.ownerUid}:${p.kind}", p.title)
                     }
+                }
+            }
+        }
+
+        if (show(LibFilter.YOUTUBE)) {
+            if (!settings.ytLoggedIn) {
+                fullLine { LoginCard("YouTube Music", "Ваши лайки, плейлисты и загруженные песни") { nav.navigate("login/yt") } }
+            } else {
+                item { GeneratedTile("Понравилось", "YouTube Music", Icons.Rounded.Favorite, Red) { nav.openTracks("ytliked", "-", "Понравилось") } }
+                item { GeneratedTile("Загруженные", "Ваши песни в YouTube Music", Icons.Rounded.CloudUpload, Red) { nav.openTracks("ytuploads", "-", "Загруженные") } }
+                ytPlaylists?.exceptionOrNull()?.let { e -> fullLine { ErrorText(e.message) } }
+                items(ytPlaylists?.getOrNull().orEmpty(), key = { "yt${it.browseId}" }) { p ->
+                    CoverTile(p.coverUrl, p.title, p.subtitle.ifBlank { "YouTube" }) { nav.openTracks("ytpl", p.browseId, p.title) }
                 }
             }
         }
@@ -139,8 +174,46 @@ fun LibraryScreen(nav: NavController) {
             }
             item { GeneratedTile("Новый плейлист", "Из любых сервисов", Icons.Rounded.Add, Color(0xFF6B6B78)) { createDialog = true } }
             item { GeneratedTile("Скачанное", "Без интернета", Icons.Rounded.CloudDownload, Green) { nav.openTracks("downloads", "-", "Скачанное") } }
-            item { GeneratedTile("Перенос плейлистов", "YouTube / ВК → Яндекс", Icons.Rounded.SwapHoriz, Orange) { nav.navigate("transfer") } }
+            item { GeneratedTile("Перенос плейлистов", "Из любого сервиса в любой", Icons.Rounded.SwapHoriz, Orange) { nav.navigate("transfer") } }
         }
+    }
+
+    if (linkDialog) {
+        var link by remember { mutableStateOf("") }
+        var wrong by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { linkDialog = false },
+            title = { Text("Открыть по ссылке") },
+            text = {
+                Column {
+                    Text(
+                        "Плейлист, альбом или трек из Яндекс Музыки, YouTube (Music) или ВКонтакте.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        link,
+                        { link = it; wrong = false },
+                        label = { Text("Ссылка") },
+                        singleLine = true,
+                        isError = wrong,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    if (wrong) Text("Не узнаю эту ссылку", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = Links.parse(link)
+                    if (target == null) wrong = true
+                    else {
+                        linkDialog = false
+                        nav.openTracks(target.kind, target.arg, target.title)
+                    }
+                }) { Text("Открыть") }
+            },
+            dismissButton = { TextButton(onClick = { linkDialog = false }) { Text("Отмена") } },
+        )
     }
 
     if (createDialog) {

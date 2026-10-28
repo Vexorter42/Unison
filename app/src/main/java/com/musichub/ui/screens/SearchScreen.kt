@@ -1,10 +1,9 @@
 package com.musichub.ui.screens
 
-import androidx.compose.foundation.layout.PaddingValues
-import com.musichub.ui.liquid.LocalBottomInset
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
-import com.musichub.ui.GlassChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -37,7 +35,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.musichub.App
 import com.musichub.data.model.Source
 import com.musichub.search.SearchResult
+import com.musichub.ui.GlassChip
 import com.musichub.ui.TrackRow
+import com.musichub.ui.liquid.LocalBottomInset
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
