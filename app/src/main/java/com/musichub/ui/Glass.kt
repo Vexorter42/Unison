@@ -1,5 +1,6 @@
 package com.musichub.ui
 
+import com.musichub.util.hiResCover
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,7 +44,7 @@ fun CoverBackdrop(url: String?, modifier: Modifier = Modifier, strength: Float =
     Box(modifier.fillMaxSize()) {
         if (url != null) {
             AsyncImage(
-                model = url,
+                model = hiResCover(url),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

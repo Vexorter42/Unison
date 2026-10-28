@@ -1,5 +1,6 @@
 package com.musichub.playback
 
+import com.musichub.search.TrackMatcher
 import android.net.Uri
 import androidx.core.net.toUri
 import com.musichub.AppGraph
@@ -62,22 +63,34 @@ class StreamResolver(private val graph: AppGraph) {
             val altId = uri.getQueryParameter("alt_${alt.prefix}") ?: continue
             runCatching { direct(alt, altId, q) }.onSuccess { markFallback(uri); return it }
         }
-        // 2) Ищем тот же трек на YouTube
+        val target = Track(
+            source = source,
+            sourceId = "",
+            title = uri.getQueryParameter("t").orEmpty(),
+            artists = uri.getQueryParameter("a").orEmpty(),
+            durationMs = uri.getQueryParameter("d")?.toLongOrNull() ?: 0,
+        )
+        // 2) Трек с YouTube не играет (например, YouTube просит «подтвердить, что вы не бот») — ищем в Яндексе
+        if (source != Source.YANDEX && graph.settings.current.yandexLoggedIn) {
+            val q2 = TrackMatcher.splitYoutube(target)
+            val match = runCatching { TrackMatcher.best(q2, graph.yandex.searchBlocking("${q2.artists} ${q2.title}"), threshold = 0.65) }.getOrNull()
+            if (match != null) {
+                runCatching { graph.yandex.streamUrlBlocking(match.sourceId, q) }.onSuccess { markFallback(uri); return it }
+            }
+        }
+        // 3) Ищем тот же трек на YouTube
         if (source != Source.YOUTUBE) {
-            val target = Track(
-                source = source,
-                sourceId = "",
-                title = uri.getQueryParameter("t").orEmpty(),
-                artists = uri.getQueryParameter("a").orEmpty(),
-                durationMs = uri.getQueryParameter("d")?.toLongOrNull() ?: 0,
-            )
             graph.youtube.findMatchBlocking(target)?.let { match ->
                 val url = graph.youtube.streamUrlBlocking(match.sourceId, q)
                 markFallback(uri)
                 return url
             }
         }
-        throw IOException("${cause.message}. Замена не найдена", cause)
+        val reason = cause.message.orEmpty()
+        if ("not a bot" in reason || "LOGIN_REQUIRED" in reason) {
+            throw IOException("YouTube временно не пускает с этого IP (просит подтвердить, что вы не бот). Замена в Яндексе не нашлась", cause)
+        }
+        throw IOException("$reason. Замена не найдена", cause)
     }
 
     private fun markFallback(uri: Uri) = _fallbackKeys.update { it + cacheKey(uri) }

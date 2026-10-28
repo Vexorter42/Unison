@@ -41,4 +41,19 @@ fun plural(n: Int, one: String, few: String, many: String): String {
 
 fun tracksCount(n: Int) = plural(n, "трек", "трека", "треков")
 
+/**
+ * Обложки YouTube в высоком качестве: поиск отдаёт миниатюры 60–120 px.
+ * lh3.googleusercontent…=w120-h120… → 544×544, i.ytimg.com/vi/<id>/default.jpg → hqdefault.
+ */
+fun hiResCover(url: String?): String? {
+    if (url == null) return null
+    if ("googleusercontent.com" in url || "ggpht.com" in url) {
+        return url.replace(Regex("""=w\d+-h\d+"""), "=w544-h544").replace(Regex("""=s\d+"""), "=s544")
+    }
+    Regex("""i\.ytimg\.com/vi(?:_webp)?/([^/]+)/""").find(url)?.let { m ->
+        if ("hqdefault" !in url && "maxresdefault" !in url && "sddefault" !in url) return "https://i.ytimg.com/vi/${m.groupValues[1]}/hqdefault.jpg"
+    }
+    return url
+}
+
 fun Throwable.asIo(): IOException = this as? IOException ?: IOException(message, this)

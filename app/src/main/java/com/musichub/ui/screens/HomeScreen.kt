@@ -1,5 +1,6 @@
 package com.musichub.ui.screens
 
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -117,7 +118,10 @@ fun HomeScreen(nav: NavController) {
                     .clip(RoundedCornerShape(24.dp))
                     .background(LocalPalette.current.gradient),
             ) {
-                Column(Modifier.padding(20.dp).align(Alignment.TopStart)) {
+                Column(
+                    Modifier.align(Alignment.Center).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text("Моя волна", style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold)
                     Text(
                         buildString {
@@ -125,15 +129,16 @@ fun HomeScreen(nav: NavController) {
                             if (settings.mixYoutubeInWave) append(" + YouTube каждый ${settings.mixEvery}-й")
                         },
                         color = Color.White.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center,
                     )
-                }
-                FilledIconButton(
-                    onClick = { if (state.waveMode) engine.togglePlay() else engine.startWave() },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).size(64.dp),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = LocalPalette.current.a),
-                ) {
-                    Icon(if (playingWave) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Моя волна", Modifier.size(36.dp))
+                    FilledIconButton(
+                        onClick = { if (state.waveMode) engine.togglePlay() else engine.startWave() },
+                        modifier = Modifier.padding(top = 14.dp).size(64.dp),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = LocalPalette.current.a),
+                    ) {
+                        Icon(if (playingWave) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Моя волна", Modifier.size(36.dp))
+                    }
                 }
             }
         }

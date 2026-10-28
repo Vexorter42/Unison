@@ -1,5 +1,6 @@
 package com.musichub.playback
 
+import com.musichub.util.hiResCover
 import android.content.Context
 import android.os.SystemClock
 import androidx.annotation.OptIn
@@ -266,7 +267,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
                 .setTitle(t.title)
                 .setArtist(t.artists)
                 .setAlbumTitle(t.album)
-                .setArtworkUri(t.coverUrl?.toUri())
+                .setArtworkUri(hiResCover(t.coverUrl)?.toUri())
                 .setIsPlayable(true)
                 .setIsBrowsable(false)
                 .build(),

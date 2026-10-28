@@ -1,5 +1,6 @@
 package com.musichub.ui
 
+import com.musichub.util.hiResCover
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
@@ -98,7 +99,7 @@ fun Cover(url: String?, size: Dp = Dp.Unspecified, modifier: Modifier = Modifier
     ) {
         Icon(Icons.Rounded.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         if (url != null) {
-            AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+            AsyncImage(model = hiResCover(url), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
         }
     }
 }

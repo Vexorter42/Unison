@@ -160,11 +160,12 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
 
     // ---------- Поиск и библиотека ----------
 
-    suspend fun search(query: String): List<Track> = io {
+    suspend fun search(query: String): List<Track> = io { searchBlocking(query) }
+
+    fun searchBlocking(query: String): List<Track> =
         get("/search", mapOf("text" to query, "type" to "track", "page" to "0", "nocorrect" to "false"))
             .obj()?.get("tracks").obj()?.get("results").arr()
             .mapNotNull { it.obj()?.let(::parseTrack) }
-    }
 
     private fun likedRefs(): List<String> {
         val items = get("/users/$uid/likes/tracks").obj()?.get("library").obj()?.get("tracks").arr()
