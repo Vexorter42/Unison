@@ -71,7 +71,7 @@ class DownloadService : Service() {
     }
 
     private fun build(batch: DownloadBatch?) = NotificationCompat.Builder(this, CHANNEL)
-        .setSmallIcon(R.drawable.ic_launcher_monochrome)
+        .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(
             when {
                 batch == null -> "Загрузка"

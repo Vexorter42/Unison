@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок в уведомлениях и шторке: три круга Unison, белым контуром (система сама перекрашивает) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="52"
+    android:viewportHeight="52">
+    <group
+        android:translateX="-28"
+        android:translateY="-25.5">
+        <path
+            android:pathData="M39,44a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+            android:strokeWidth="3.6"
+            android:strokeColor="#FFFFFFFF" />
+        <path
+            android:pathData="M30.3,59a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+            android:strokeWidth="3.6"
+            android:strokeColor="#FFFFFFFF" />
+        <path
+            android:pathData="M47.7,59a15,15 0 1,0 30,0a15,15 0 1,0 -30,0"
+            android:strokeWidth="3.6"
+            android:strokeColor="#FFFFFFFF" />
+    </group>
+</vector>

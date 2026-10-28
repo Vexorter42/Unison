@@ -1,6 +1,5 @@
 package com.musichub.ui.liquid
 
-import com.musichub.ui.theme.LocalPalette
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -15,6 +14,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -40,7 +40,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -53,6 +57,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -66,7 +72,10 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.shapes.Capsule
+import com.musichub.ui.theme.LocalPalette
+import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Включена ли тема Liquid Glass. */
 val LocalLiquidGlass = compositionLocalOf { true }
@@ -237,13 +246,21 @@ fun LiquidNavBar(
 ) {
     val liquid = LocalLiquidGlass.current
     val position = remember { Animatable(selected.coerceAtLeast(0).toFloat()) }
+    val currentSelected by rememberUpdatedState(selected)
+    val currentOnSelect by rememberUpdatedState(onSelect)
+    val scope = rememberCoroutineScope()
+    var dragging by remember { mutableStateOf(false) }
+    // Пока пузырь тянут — он раздувается и становится прозрачнее, как линза
+    val press by animateFloatAsState(if (dragging) 1f else 0f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "drag")
     LaunchedEffect(selected) {
-        if (selected >= 0) position.animateTo(selected.toFloat(), spring(dampingRatio = 0.6f, stiffness = 240f))
+        if (selected >= 0 && !dragging) position.animateTo(selected.toFloat(), spring(dampingRatio = 0.6f, stiffness = 240f))
     }
     BoxWithConstraints(modifier.fillMaxWidth().height(66.dp).liquidCapsule(backdrop)) {
         val inner = 5.dp
         val tabW: Dp = (maxWidth - inner * 2) / items.size
-        if (selected >= 0) {
+        val innerPx = with(LocalDensity.current) { inner.toPx() }
+        val tabPx = with(LocalDensity.current) { tabW.toPx() }
+        if (selected >= 0 || dragging) {
             val bubble = Modifier
                 .padding(start = inner, top = inner, bottom = inner)
                 .width(tabW)
@@ -251,8 +268,8 @@ fun LiquidNavBar(
                 .graphicsLayer {
                     translationX = position.value * tabW.toPx()
                     val v = (abs(position.velocity) * 0.11f).coerceAtMost(0.45f)
-                    scaleX = 1f + v
-                    scaleY = 1f - v * 0.3f
+                    scaleX = 1f + v + 0.16f * press
+                    scaleY = 1f - v * 0.3f + 0.16f * press
                 }
             if (liquid && backdrop != null) {
                 Box(
@@ -261,17 +278,45 @@ fun LiquidNavBar(
                         shape = { Capsule() },
                         effects = {
                             vibrancy()
-                            blur(4f.dp.toPx())
-                            lens(14f.dp.toPx(), 22f.dp.toPx(), chromaticAberration = true)
+                            blur(4f.dp.toPx() * (1f - press))
+                            lens(14f.dp.toPx() * (1f + press), 22f.dp.toPx() * (1f + press * 0.6f), chromaticAberration = true)
                         },
-                        onDrawSurface = { drawRect(Color.White.copy(alpha = 0.16f)) },
+                        onDrawSurface = { drawRect(Color.White.copy(alpha = 0.16f * (1f - 0.7f * press))) },
                     ),
                 )
             } else {
-                Box(bubble.clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)))
+                Box(bubble.clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f + 0.1f * press)))
             }
         }
-        Row(Modifier.fillMaxSize().padding(horizontal = inner)) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                // Пузырь можно перетаскивать пальцем; отпустил — прилипает к ближайшей вкладке
+                .pointerInput(items.size, tabPx) {
+                    fun indexAt(x: Float) = ((x - innerPx) / tabPx - 0.5f).coerceIn(0f, (items.size - 1).toFloat())
+                    detectHorizontalDragGestures(
+                        onDragStart = { start ->
+                            dragging = true
+                            scope.launch { position.animateTo(indexAt(start.x), spring(dampingRatio = 0.8f, stiffness = 700f)) }
+                        },
+                        onHorizontalDrag = { change, _ ->
+                            change.consume()
+                            scope.launch { position.snapTo(indexAt(change.position.x)) }
+                        },
+                        onDragEnd = {
+                            dragging = false
+                            val target = position.value.roundToInt()
+                            scope.launch { position.animateTo(target.toFloat(), spring(dampingRatio = 0.6f, stiffness = 240f)) }
+                            if (target != currentSelected) currentOnSelect(target)
+                        },
+                        onDragCancel = {
+                            dragging = false
+                            scope.launch { position.animateTo(currentSelected.coerceAtLeast(0).toFloat(), spring(dampingRatio = 0.6f, stiffness = 240f)) }
+                        },
+                    )
+                }
+                .padding(horizontal = inner),
+        ) {
             items.forEachIndexed { i, item ->
                 val active = i == selected
                 val tint by animateColorAsState(
