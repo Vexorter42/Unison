@@ -59,14 +59,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun buttons(liked: Boolean): List<CommandButton> = listOf(
-        CommandButton.Builder(CommandButton.ICON_THUMB_DOWN_UNFILLED)
-            .setDisplayName("Не нравится")
-            .setSessionCommand(DISLIKE)
-            .setSlots(CommandButton.SLOT_OVERFLOW)
-            .build(),
         CommandButton.Builder(if (liked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
             .setDisplayName(if (liked) "Убрать из «Любимого»" else "В «Любимое»")
             .setSessionCommand(LIKE)
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build(),
+        CommandButton.Builder(CommandButton.ICON_THUMB_DOWN_UNFILLED)
+            .setDisplayName("Не нравится")
+            .setSessionCommand(DISLIKE)
             .setSlots(CommandButton.SLOT_OVERFLOW)
             .build(),
     )

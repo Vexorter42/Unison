@@ -319,6 +319,11 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         else player.seekToPreviousMediaItem()
     }
 
+    /** Для свайпа: всегда на предыдущий трек (а если его нет — в начало текущего). */
+    fun previousTrack() {
+        if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo(0)
+    }
+
     fun seekTo(ms: Long) = player.seekTo(ms)
 
     fun skipTo(index: Int) = player.seekTo(index, 0)

@@ -1,14 +1,16 @@
 package com.musichub.ui
 
-import com.musichub.util.hiResCover
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
@@ -56,14 +58,18 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,8 +88,10 @@ import com.musichub.ui.liquid.liquidCapsule
 import com.musichub.ui.liquid.liquidClickable
 import com.musichub.ui.theme.LocalPalette
 import com.musichub.util.formatTime
+import com.musichub.util.hiResCover
 import com.musichub.util.tracksCount
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 fun NavController.openTracks(kind: String, arg: String, title: String) =
     navigate("tracks/$kind/${Uri.encode(arg)}/${Uri.encode(title)}")
@@ -281,6 +289,7 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
         }
     }
     var dragged by remember { mutableFloatStateOf(0f) }
+    val swipe = remember { Animatable(0f) }
     val progress = if (state.durationMs > 0) state.positionMs.toFloat() / state.durationMs else 0f
 
     Box(
@@ -289,6 +298,7 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
             .height(62.dp)
             .liquidCapsule(backdrop)
             .liquidClickable(pressedScale = 0.97f, onClick = onOpen)
+            .swipeTracks(swipe, canNext = state.hasNext, onNext = { engine.next() }, onPrevious = engine::previousTrack)
             .draggable(
                 rememberDraggableState { d -> dragged += d },
                 Orientation.Vertical,
@@ -298,7 +308,16 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
                 },
             ),
     ) {
-        Row(Modifier.fillMaxSize().padding(start = 9.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = swipe.value
+                    alpha = 1f - (abs(swipe.value) / size.width).coerceIn(0f, 1f) * 0.7f
+                }
+                .padding(start = 9.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Cover(track.coverUrl, 44.dp, Modifier.graphicsLayer { rotationZ = spin.value }, corner = 22.dp)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -394,4 +413,55 @@ fun shareTrack(context: android.content.Context, track: Track, url: String) {
             "Поделиться",
         ),
     )
+}
+
+/**
+ * Перелистывание треков свайпом: влево — следующий, вправо — предыдущий.
+ * Содержимое едет за пальцем ([offset]); если сдвинули больше чем на четверть ширины —
+ * уезжает за край, трек переключается, и новое въезжает с другой стороны.
+ */
+fun Modifier.swipeTracks(
+    offset: Animatable<Float, AnimationVector1D>,
+    canNext: Boolean,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+): Modifier = composed {
+    val scope = rememberCoroutineScope()
+    var width by remember { mutableFloatStateOf(1f) }
+    val next by rememberUpdatedState(onNext)
+    val prev by rememberUpdatedState(onPrevious)
+    val hasNext by rememberUpdatedState(canNext)
+    val settle = spring<Float>(dampingRatio = 0.8f, stiffness = 420f)
+    onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+        .pointerInput(Unit) {
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    val v = offset.value
+                    scope.launch {
+                        when {
+                            v < -width * 0.25f && hasNext -> {
+                                offset.animateTo(-width, tween(140))
+                                next()
+                                offset.snapTo(width)
+                                offset.animateTo(0f, settle)
+                            }
+                            v > width * 0.25f -> {
+                                offset.animateTo(width, tween(140))
+                                prev()
+                                offset.snapTo(-width)
+                                offset.animateTo(0f, settle)
+                            }
+                            else -> offset.animateTo(0f, settle)
+                        }
+                    }
+                },
+                onDragCancel = { scope.launch { offset.animateTo(0f, settle) } },
+                onHorizontalDrag = { change, dx ->
+                    change.consume()
+                    // Если следующего трека нет — тянется туго
+                    val d = if (dx < 0 && !hasNext) dx * 0.25f else dx
+                    scope.launch { offset.snapTo(offset.value + d) }
+                },
+            )
+        }
 }

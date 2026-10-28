@@ -92,8 +92,10 @@ import com.musichub.lyrics.Lyrics
 import com.musichub.ui.Cover
 import com.musichub.ui.CoverBackdrop
 import com.musichub.ui.SourceBadge
+import com.musichub.ui.swipeTracks
 import com.musichub.util.formatTime
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @Composable
 fun PlayerScreen(onBack: () -> Unit) {
@@ -170,27 +172,48 @@ fun PlayerScreen(onBack: () -> Unit) {
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.35f)),
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { dismiss() }) { Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть") }
+        // Слева одна кнопка, справа две — поэтому заголовок кладём поверх ряда, строго по центру экрана
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { dismiss() }) { Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть") }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { sleepDialog = true }) {
+                    Icon(Icons.Rounded.Bedtime, "Таймер сна", tint = if (sleepActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { showLyrics = !showLyrics }) {
+                    Icon(Icons.Rounded.Lyrics, "Текст", tint = if (showLyrics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Text(
                 state.radioTitle ?: "Сейчас играет",
-                modifier = Modifier.weight(1f),
+                // Отступы по 96 dp — ширина двух кнопок справа, чтобы длинное «Радио: …» не наезжало на иконки
+                modifier = Modifier.padding(horizontal = 96.dp),
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,
             )
-            IconButton(onClick = { sleepDialog = true }) {
-                Icon(Icons.Rounded.Bedtime, "Таймер сна", tint = if (sleepActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = { showLyrics = !showLyrics }) {
-                Icon(Icons.Rounded.Lyrics, "Текст", tint = if (showLyrics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
 
         Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
             if (showLyrics) {
                 LyricsView(track, state.positionMs, onSeek = engine::seekTo)
             } else {
-                Cover(track.coverUrl, modifier = Modifier.fillMaxWidth().aspectRatio(1f), corner = 16.dp)
+                val swipe = remember { Animatable(0f) }
+                Cover(
+                    track.coverUrl,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .swipeTracks(swipe, canNext = state.hasNext, onNext = { engine.next() }, onPrevious = engine::previousTrack)
+                        .graphicsLayer {
+                            translationX = swipe.value
+                            val f = (swipe.value / size.width).coerceIn(-1f, 1f)
+                            rotationZ = f * 6f
+                            alpha = 1f - abs(f) * 0.6f
+                        },
+                    corner = 16.dp,
+                )
             }
         }
 
@@ -252,11 +275,11 @@ fun PlayerScreen(onBack: () -> Unit) {
         }
 
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            IconButton(onClick = engine::dislike) { Icon(Icons.Rounded.ThumbDown, "Не нравится") }
             val isLiked = track.key in liked
             IconButton(onClick = engine::toggleLike) {
                 Icon(if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Нравится", tint = if (isLiked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface)
             }
+            IconButton(onClick = engine::dislike) { Icon(Icons.Rounded.ThumbDown, "Не нравится") }
             if (track.key in downloaded) {
                 IconButton(onClick = { engine.removeDownload(track) }) { Icon(Icons.Rounded.DownloadDone, "Удалить загрузку", tint = MaterialTheme.colorScheme.primary) }
             } else {
