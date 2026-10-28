@@ -9,6 +9,7 @@ import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,7 +30,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -74,6 +80,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private enum class ClearTarget { CACHE, DOWNLOADS }
+
 private val cacheSizes = listOf(1024, 2048, 4096, 8192, 16384, 32768, 65536)
 
 @Composable
@@ -88,6 +96,7 @@ fun SettingsScreen(nav: NavController) {
     var usageReload by remember { mutableIntStateOf(0) }
     LaunchedEffect(usageReload) { usage = graph.engine.cacheUsage() }
     var diagnostics by remember { mutableStateOf<List<String>?>(null) }
+    var confirmClear by remember { mutableStateOf<ClearTarget?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             val r = runCatching { graph.backup.export(uri) }
@@ -294,12 +303,70 @@ fun SettingsScreen(nav: NavController) {
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
-        TextButton(onClick = {
-            scope.launch {
-                graph.engine.clearAutoCache()
-                usageReload++
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                onClick = { confirmClear = ClearTarget.CACHE },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+            ) {
+                Icon(Icons.Rounded.CleaningServices, null, Modifier.size(18.dp))
+                Text("Очистить кеш", Modifier.padding(start = 6.dp))
             }
-        }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Очистить кеш (скачанное останется)") }
+            OutlinedButton(
+                onClick = { confirmClear = ClearTarget.DOWNLOADS },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+            ) {
+                Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp))
+                Text("Удалить скачанное", Modifier.padding(start = 6.dp))
+            }
+        }
+        Text(
+            "Кеш — то, что вы просто слушали; он чистится сам. Скачанное — то, что вы скачали для офлайна.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        confirmClear?.let { target ->
+            val sizeMb = usage?.let { (auto, downloads) -> (if (target == ClearTarget.CACHE) auto else downloads) / 1_048_576 } ?: 0
+            AlertDialog(
+                onDismissRequest = { confirmClear = null },
+                title = { Text(if (target == ClearTarget.CACHE) "Очистить кеш?" else "Удалить всё скачанное?") },
+                text = {
+                    Text(
+                        if (target == ClearTarget.CACHE) {
+                            "Освободится ${formatMb(sizeMb)}. Скачанные треки останутся, а прослушанные будут заново загружаться из сети."
+                        } else {
+                            "Освободится ${formatMb(sizeMb)}. Скачанные треки перестанут играть без интернета — " +
+                                "их придётся скачать заново. Сами плейлисты и «Любимое» не пострадают."
+                        },
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmClear = null
+                        scope.launch {
+                            if (target == ClearTarget.CACHE) {
+                                graph.engine.clearAutoCache()
+                                graph.engine.notify("Кеш очищен")
+                            } else {
+                                val n = graph.engine.clearDownloads()
+                                graph.engine.notify(if (n > 0) "Удалено скачанных треков: $n" else "Скачанное очищено")
+                            }
+                            usageReload++
+                        }
+                    }) {
+                        Text(
+                            if (target == ClearTarget.CACHE) "Очистить" else "Удалить",
+                            color = if (target == ClearTarget.DOWNLOADS) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+                dismissButton = { TextButton(onClick = { confirmClear = null }) { Text("Отмена") } },
+            )
+        }
 
         Group("Резервная копия")
         Text(

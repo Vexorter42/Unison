@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -567,12 +568,9 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
                 graph.db.downloads().put(DownloadedTrack(t.key, t.toJson(), System.currentTimeMillis(), bytes))
                 ok = true
             } catch (e: Exception) {
-                if (cancelRequested) {
-                    // Недокачанный кусок не нужен
-                    withContext(Dispatchers.IO) { runCatching { downloadCache.removeResource(t.key) } }
-                } else {
-                    _messages.emit("Не скачалось «${t.title}»: ${e.message}")
-                }
+                // Недокачанный кусок не нужен — иначе он занимает место, а трек всё равно не скачан
+                withContext(Dispatchers.IO) { runCatching { downloadCache.removeResource(t.key) } }
+                if (!cancelRequested) _messages.emit("Не скачалось «${t.title}»: ${e.message}")
             } finally {
                 currentWriter = null
                 _downloading.update { it - t.key }
@@ -612,6 +610,15 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     suspend fun clearAutoCache() = withContext(Dispatchers.IO) {
         autoCache.keys.toList().forEach { autoCache.removeResource(it) }
+    }
+
+    /** Удаляет всё скачанное для офлайна (идущие загрузки сначала отменяются). Возвращает, сколько треков удалено. */
+    suspend fun clearDownloads(): Int {
+        cancelDownloads()
+        val count = graph.db.downloads().observeAll().first().size
+        withContext(Dispatchers.IO) { downloadCache.keys.toList().forEach { downloadCache.removeResource(it) } }
+        graph.db.downloads().deleteAll()
+        return count
     }
 
     // ---------- Внутреннее ----------

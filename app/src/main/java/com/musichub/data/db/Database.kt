@@ -164,6 +164,9 @@ interface DownloadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(d: DownloadedTrack)
 
+    @Query("DELETE FROM downloads")
+    suspend fun deleteAll()
+
     @Query("DELETE FROM downloads WHERE trackKey = :key")
     suspend fun delete(key: String)
 }
