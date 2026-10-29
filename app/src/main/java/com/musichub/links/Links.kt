@@ -25,6 +25,7 @@ object Links {
             host.startsWith("music.yandex.") -> parseYandex(path)
             host == "youtube.com" || host == "music.youtube.com" || host == "youtu.be" -> parseYoutube(host, uri, path)
             host == "vk.com" || host == "vk.ru" -> parseVk(uri, path)
+            host == "soundcloud.com" || host == "on.soundcloud.com" -> parseSoundCloud(path)
             else -> null
         }
     }
@@ -65,12 +66,19 @@ object Links {
         return null
     }
 
+    private fun parseSoundCloud(p: List<String>): LinkTarget? = when {
+        p.size >= 3 && p[1] == "sets" -> LinkTarget("scpl", "${p[0]}/sets/${p[2]}", "Плейлист SoundCloud")
+        p.size >= 2 -> LinkTarget("sctrack", "${p[0]}/${p[1]}", "Трек")
+        else -> null
+    }
+
     /** Ссылка на список треков, если у него есть адрес в сервисе. */
     fun shareUrl(kind: String, arg: String): String? = when (kind) {
         "yapl" -> arg.split(':').let { "https://music.yandex.ru/users/${it[0]}/playlists/${it[1]}" }
         "yaalbum" -> "https://music.yandex.ru/album/$arg"
         "yauuid" -> "https://music.yandex.ru/playlists/$arg"
         "ytpl" -> "https://music.youtube.com/playlist?list=${arg.removePrefix("VL")}"
+        "scpl" -> "https://soundcloud.com/$arg"
         "vkpl" -> arg.split(':').let { p ->
             "https://vk.com/music/playlist/${p[0]}_${p[1]}" + (p.getOrNull(2)?.takeIf { it.isNotBlank() }?.let { "_$it" } ?: "")
         }
@@ -83,6 +91,7 @@ object Links {
             if (p.size == 2) "https://music.yandex.ru/album/${p[1]}/track/${p[0]}" else "https://music.yandex.ru/track/${p[0]}"
         }
         Source.YOUTUBE -> "https://music.youtube.com/watch?v=${t.sourceId}"
+        Source.SOUNDCLOUD -> "https://soundcloud.com/${t.sourceId}"
         Source.VK, Source.LOCAL -> null
     }
 

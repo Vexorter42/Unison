@@ -15,7 +15,9 @@ import com.musichub.net.FallbackDns
 import com.musichub.net.NetworkRouter
 import com.musichub.playback.EqualizerController
 import com.musichub.playback.PlaybackEngine
+import com.musichub.search.SearchHistory
 import com.musichub.search.SearchRepository
+import com.musichub.soundcloud.SoundCloudApi
 import com.musichub.transfer.TransferRepository
 import com.musichub.update.Updater
 import com.musichub.vk.VkApi
@@ -55,10 +57,12 @@ class AppGraph(app: Application) {
     val yandex = YandexApi(router.callFactory, settings)
     val vk = VkApi(router.callFactory, settings)
     val youtube = YouTubeApi()
+    val soundcloud = SoundCloudApi()
     val ytMusic = YtMusicApi(router.callFactory) { settings.current.ytCookie }
     val localMusic = LocalMusic(app)
     val lyrics = LyricsRepository(http)
-    val search = SearchRepository(yandex, vk, youtube, localMusic, settings)
+    val searchHistory = SearchHistory(app)
+    val search = SearchRepository(yandex, vk, youtube, soundcloud, localMusic, settings)
     val library = LibraryRepository(db)
     val favorites = Favorites(this)
     val sources = TrackSources(this)

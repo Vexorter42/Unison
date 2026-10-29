@@ -4,6 +4,7 @@ import com.musichub.data.SettingsRepository
 import com.musichub.data.model.Track
 import com.musichub.data.model.TrackRef
 import com.musichub.local.LocalMusic
+import com.musichub.soundcloud.SoundCloudApi
 import com.musichub.vk.VkApi
 import com.musichub.yandex.YandexApi
 import com.musichub.youtube.YouTubeApi
@@ -17,6 +18,7 @@ class SearchRepository(
     private val yandex: YandexApi,
     private val vk: VkApi,
     private val youtube: YouTubeApi,
+    private val soundcloud: SoundCloudApi,
     private val local: LocalMusic,
     private val settings: SettingsRepository,
 ) {
@@ -26,7 +28,8 @@ class SearchRepository(
         val vkRes = async { if (s.searchVk && s.vkLoggedIn) runCatching { vk.search(query) } else Result.success(emptyList()) }
         val yt = async { if (s.searchYoutube) runCatching { youtube.search(query) } else Result.success(emptyList()) }
         val files = async { runCatching { local.search(query) } }
-        val results = listOf("Яндекс" to ya.await(), "ВК" to vkRes.await(), "YouTube" to yt.await())
+        val sc = async { if (s.searchSoundcloud) runCatching { soundcloud.search(query) } else Result.success(emptyList()) }
+        val results = listOf("Яндекс" to ya.await(), "ВК" to vkRes.await(), "YouTube" to yt.await(), "SoundCloud" to sc.await())
 
         // Порядок важен: у Яндекса лучшие метаданные, поэтому он «главный», остальные — подмешиваются
         var merged = emptyList<Track>()

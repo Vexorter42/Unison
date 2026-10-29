@@ -42,7 +42,7 @@ class StreamResolver(private val graph: AppGraph) {
         val url = try {
             direct(source, id, s.quality)
         } catch (e: Exception) {
-            if (!s.fallbackToOthers) throw e.asIo()
+            if (!s.fallbackToOthers || source == Source.SOUNDCLOUD) throw e.asIo()
             fallback(uri, source, s.quality, e)
         }
         memo[key] = Resolved(url, System.currentTimeMillis())
@@ -54,6 +54,7 @@ class StreamResolver(private val graph: AppGraph) {
         Source.VK -> graph.vk.streamUrlBlocking(id)
         Source.YOUTUBE -> graph.youtube.streamUrlBlocking(id, q)
         Source.LOCAL -> LocalMusic.contentUri(id).toString()
+        Source.SOUNDCLOUD -> graph.soundcloud.streamUrlBlocking(id)
     }
 
     private fun fallback(uri: Uri, source: Source, q: Quality, cause: Exception): String {

@@ -119,6 +119,7 @@ fun SourceBadge(source: Source, highlighted: Boolean = true) {
         Source.VK -> MaterialTheme.colorScheme.primary
         Source.YOUTUBE -> MaterialTheme.colorScheme.error
         Source.LOCAL -> MaterialTheme.colorScheme.secondary
+        Source.SOUNDCLOUD -> Color(0xFFFF7A1A)
     }
     Surface(
         color = if (highlighted) color.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
@@ -204,8 +205,8 @@ fun TrackRow(
                         DropdownMenuItem(text = { Text("Играть следующим") }, onClick = { menu = false; engine.playNext(track) })
                         DropdownMenuItem(text = { Text("В очередь") }, onClick = { menu = false; engine.enqueue(track) })
                         DropdownMenuItem(text = { Text("В мой плейлист…") }, onClick = { menu = false; addDialog = true })
-                        if (track.source == Source.LOCAL) {
-                            // Файл уже на телефоне — скачивать нечего
+                        if (track.source == Source.LOCAL || track.source == Source.SOUNDCLOUD) {
+                            // Файл уже на телефоне; SoundCloud отдаёт только поток
                         } else if (track.key in downloaded) {
                             DropdownMenuItem(text = { Text("Удалить загрузку") }, onClick = { menu = false; engine.removeDownload(track) })
                         } else {

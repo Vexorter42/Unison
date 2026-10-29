@@ -10,11 +10,13 @@ import androidx.media3.datasource.TransferListener
 /**
  * Файлы с телефона (content://, file://) читаем напрямую, а сетевые треки — через кеш.
  * Иначе локальная музыка копировалась бы в кеш и занимала место дважды.
+ * SoundCloud (mh://sc/…) — HLS-плейлист со ссылками, которые быстро истекают: его не кешируем.
  */
 @OptIn(UnstableApi::class)
 class SchemeRoutingDataSource(
     private val remote: DataSource,
     private val local: DataSource,
+    private val uncached: DataSource,
 ) : DataSource {
 
     private var current: DataSource? = null
@@ -22,10 +24,16 @@ class SchemeRoutingDataSource(
     override fun addTransferListener(transferListener: TransferListener) {
         remote.addTransferListener(transferListener)
         local.addTransferListener(transferListener)
+        uncached.addTransferListener(transferListener)
     }
 
     override fun open(dataSpec: DataSpec): Long {
-        val source = if (dataSpec.uri.scheme in LOCAL_SCHEMES) local else remote
+        val uri = dataSpec.uri
+        val source = when {
+            uri.scheme in LOCAL_SCHEMES -> local
+            uri.scheme == StreamResolver.SCHEME && uri.authority == "sc" -> uncached
+            else -> remote
+        }
         current = source
         return source.open(dataSpec)
     }
@@ -45,8 +53,13 @@ class SchemeRoutingDataSource(
         }
     }
 
-    class Factory(private val remote: DataSource.Factory, private val local: DataSource.Factory) : DataSource.Factory {
-        override fun createDataSource(): DataSource = SchemeRoutingDataSource(remote.createDataSource(), local.createDataSource())
+    class Factory(
+        private val remote: DataSource.Factory,
+        private val local: DataSource.Factory,
+        private val uncached: DataSource.Factory,
+    ) : DataSource.Factory {
+        override fun createDataSource(): DataSource =
+            SchemeRoutingDataSource(remote.createDataSource(), local.createDataSource(), uncached.createDataSource())
     }
 
     private companion object {

@@ -8,6 +8,7 @@ enum class Source(val prefix: String, val short: String, val label: String) {
     YANDEX("ya", "Я", "Яндекс Музыка"),
     VK("vk", "VK", "ВКонтакте"),
     YOUTUBE("yt", "YT", "YouTube"),
+    SOUNDCLOUD("sc", "SC", "SoundCloud"),
     LOCAL("lc", "Файл", "На телефоне"),
 }
 
@@ -18,7 +19,7 @@ data class TrackRef(val source: Source, val sourceId: String)
 @Serializable
 data class Track(
     val source: Source,
-    /** Яндекс: "trackId:albumId", ВК: "ownerId_audioId[_accessKey]", YouTube: videoId, файл: id в MediaStore */
+    /** Яндекс: "trackId:albumId", ВК: "ownerId_audioId[_accessKey]", YouTube: videoId, SoundCloud: "автор/трек", файл: id в MediaStore */
     val sourceId: String,
     val title: String,
     val artists: String,

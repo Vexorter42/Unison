@@ -280,7 +280,9 @@ fun PlayerScreen(onBack: () -> Unit) {
                 Icon(if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Нравится", tint = if (isLiked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = engine::dislike) { Icon(Icons.Rounded.ThumbDown, "Не нравится") }
-            if (track.key in downloaded) {
+            if (track.source == Source.SOUNDCLOUD || track.source == Source.LOCAL) {
+                IconButton(onClick = {}, enabled = false) { Icon(Icons.Rounded.Download, "Скачать недоступно") }
+            } else if (track.key in downloaded) {
                 IconButton(onClick = { engine.removeDownload(track) }) { Icon(Icons.Rounded.DownloadDone, "Удалить загрузку", tint = MaterialTheme.colorScheme.primary) }
             } else {
                 IconButton(onClick = { engine.download(listOf(track)) }) { Icon(Icons.Rounded.Download, "Скачать") }

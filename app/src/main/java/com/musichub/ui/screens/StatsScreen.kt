@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -19,9 +22,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,6 +37,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.musichub.App
 import com.musichub.data.db.HourRow
 import com.musichub.data.db.SourceRow
@@ -39,11 +45,15 @@ import com.musichub.data.db.TopArtistRow
 import com.musichub.data.db.TopTrackRow
 import com.musichub.data.db.Totals
 import com.musichub.data.model.Source
+import com.musichub.data.model.Track
+import com.musichub.ui.Cover
 import com.musichub.ui.GlassChip
 import com.musichub.ui.liquid.GlassPanel
 import com.musichub.ui.liquid.LocalBottomInset
+import com.musichub.ui.liquid.liquidClickable
 import com.musichub.util.plural
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
@@ -89,6 +99,7 @@ fun StatsScreen() {
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
+        RecentlyPlayed()
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Period.entries.forEach { p -> GlassChip(p.label, selected = p == period, onClick = { period = p }) }
         }
@@ -190,4 +201,26 @@ private fun StatsContent(d: StatsData) {
 @Composable
 private fun Header(text: String) {
     Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp, bottom = 6.dp))
+}
+
+/** «Недавно слушали» — лента обложек; тап включает трек, дальше играют остальные из ленты. */
+@Composable
+private fun RecentlyPlayed() {
+    val graph = App.graph
+    val recentFlow = remember {
+        graph.db.stats().recent(20).map { list -> list.mapNotNull { runCatching { Track.fromJson(it.trackJson) }.getOrNull() } }
+    }
+    val recent by recentFlow.collectAsState(emptyList())
+    if (recent.isEmpty()) return
+    Header("Недавно слушали")
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        itemsIndexed(recent, key = { _, t -> t.key }) { i, t ->
+            Column(Modifier.width(112.dp).liquidClickable(pressedScale = 0.95f) { graph.engine.playTracks(recent, i) }) {
+                Cover(t.coverUrl, 112.dp, corner = 14.dp)
+                Text(t.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(t.artists, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
 }

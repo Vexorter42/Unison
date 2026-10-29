@@ -178,6 +178,11 @@ fun SettingsScreen(nav: NavController) {
 
         Group("Поиск")
         SwitchRow("Искать на YouTube", null, s.searchYoutube) { v -> update { it.copy(searchYoutube = v) } }
+        SwitchRow(
+            "Искать на SoundCloud",
+            "Ремиксы, slowed-версии и треки независимых авторов. Только онлайн, без скачивания",
+            s.searchSoundcloud,
+        ) { v -> update { it.copy(searchSoundcloud = v) } }
         SwitchRow("Искать во ВКонтакте", "Нужен вход во ВК", s.searchVk) { v -> update { it.copy(searchVk = v) } }
 
         Group("Воспроизведение")

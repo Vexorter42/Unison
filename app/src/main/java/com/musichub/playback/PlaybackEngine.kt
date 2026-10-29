@@ -1,6 +1,5 @@
 package com.musichub.playback
 
-import com.musichub.util.hiResCover
 import android.content.Context
 import android.os.SystemClock
 import androidx.annotation.OptIn
@@ -9,6 +8,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -32,6 +32,7 @@ import com.musichub.data.db.PlayEvent
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
 import com.musichub.search.TrackMatcher
+import com.musichub.util.hiResCover
 import com.musichub.yandex.YandexApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -133,7 +134,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(
-                SchemeRoutingDataSource.Factory(playbackFactory, DefaultDataSource.Factory(context)),
+                SchemeRoutingDataSource.Factory(playbackFactory, DefaultDataSource.Factory(context), network),
                 DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
             ),
         )
@@ -260,6 +261,8 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     private fun toMediaItem(t: Track): MediaItem = MediaItem.Builder()
         .setMediaId(t.key)
+        // SoundCloud отдаёт HLS — плееру надо знать это заранее, по адресу mh://sc/… не понять
+        .apply { if (t.source == Source.SOUNDCLOUD) setMimeType(MimeTypes.APPLICATION_M3U8) }
         .setUri(StreamResolver.uriFor(t))
         .setTag(t)
         .setMediaMetadata(
@@ -525,7 +528,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     fun download(tracks: List<Track>) {
         val queued = pendingDownloads.mapTo(HashSet()) { it.key }
         val todo = tracks.distinctBy { it.key }
-            .filter { it.source != Source.LOCAL } // файлы и так на телефоне
+            .filter { it.source != Source.LOCAL && it.source != Source.SOUNDCLOUD } // файлы и так на телефоне; SoundCloud — только онлайн
             .filter { it.key !in downloadedKeys.value && it.key !in _downloading.value && it.key !in queued }
         if (todo.isEmpty()) {
             if (tracks.size > 1) notify("Всё уже скачано")

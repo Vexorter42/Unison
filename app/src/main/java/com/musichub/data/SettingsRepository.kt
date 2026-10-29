@@ -31,6 +31,7 @@ data class AppSettings(
     val vkName: String? = null,
     val searchYoutube: Boolean = true,
     val searchVk: Boolean = true,
+    val searchSoundcloud: Boolean = true,
     /** Если трек не играет в своём сервисе — искать замену в других. */
     val fallbackToOthers: Boolean = true,
     val mixYoutubeInWave: Boolean = false,
@@ -74,6 +75,7 @@ class SettingsRepository(private val context: Context) {
         val vkName = stringPreferencesKey("vk_name")
         val searchYt = booleanPreferencesKey("search_yt")
         val searchVk = booleanPreferencesKey("search_vk")
+        val searchSc = booleanPreferencesKey("search_sc")
         val fallback = booleanPreferencesKey("fallback")
         val mix = booleanPreferencesKey("mix_yt")
         val mixEvery = intPreferencesKey("mix_every")
@@ -116,6 +118,7 @@ class SettingsRepository(private val context: Context) {
         vkName = p[Keys.vkName],
         searchYoutube = p[Keys.searchYt] ?: true,
         searchVk = p[Keys.searchVk] ?: true,
+        searchSoundcloud = p[Keys.searchSc] ?: true,
         fallbackToOthers = p[Keys.fallback] ?: true,
         mixYoutubeInWave = p[Keys.mix] ?: false,
         mixEvery = p[Keys.mixEvery] ?: 4,
@@ -145,6 +148,7 @@ class SettingsRepository(private val context: Context) {
         p.putOrRemove(Keys.vkName, s.vkName)
         p[Keys.searchYt] = s.searchYoutube
         p[Keys.searchVk] = s.searchVk
+        p[Keys.searchSc] = s.searchSoundcloud
         p[Keys.fallback] = s.fallbackToOthers
         p[Keys.mix] = s.mixYoutubeInWave
         p[Keys.mixEvery] = s.mixEvery

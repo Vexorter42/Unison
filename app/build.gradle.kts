@@ -22,8 +22,8 @@ android {
         applicationId = "com.musichub"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.3.3"
+        versionCode = 12
+        versionName = "0.4.0"
         // Откуда приложение берёт OTA-обновления (GitHub Releases)
         buildConfigField("String", "UPDATE_REPO", "\"Vexorter42/Unison\"")
     }
@@ -93,6 +93,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
 
     val room = "2.8.4"
     implementation("androidx.room:room-runtime:$room")

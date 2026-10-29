@@ -52,10 +52,9 @@ import com.musichub.ui.screens.TrackListScreen
 import com.musichub.ui.screens.TransferScreen
 import kotlinx.coroutines.launch
 
-private val tabRoutes = listOf("home", "search", "library", "stats", "settings")
+private val tabRoutes = listOf("home", "library", "stats", "settings")
 private val navItems = listOf(
     NavItem("Главная", UnisonIcons.Home, UnisonIcons.HomeActive),
-    NavItem("Поиск", UnisonIcons.Search, UnisonIcons.SearchActive),
     NavItem("Медиатека", UnisonIcons.Library, UnisonIcons.LibraryActive),
     NavItem("Статистика", UnisonIcons.Stats, UnisonIcons.StatsActive),
     NavItem("Настройки", UnisonIcons.Settings, UnisonIcons.SettingsActive),
@@ -116,7 +115,7 @@ fun MusicHubApp() {
                     exitTransition = { fadeOut(tween(140)) },
                 ) {
                     composable("home") { HomeScreen(nav) }
-                    composable("search") { SearchScreen() }
+                    composable("search") { SearchScreen(onBack = { nav.popBackStack() }) }
                     composable("library") { LibraryScreen(nav) }
                     composable("stats") { StatsScreen() }
                     composable("settings") { SettingsScreen(nav) }
