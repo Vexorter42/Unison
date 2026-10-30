@@ -130,6 +130,11 @@ fun SettingsScreen(nav: NavController) {
             "Экран окрашивается в цвета трека, который играет. Без музыки — выбранная палитра",
             s.coverTheme,
         ) { v -> update { it.copy(coverTheme = v) } }
+        SwitchRow(
+            "Живая сфера в Моей волне",
+            "Сфера за надписью медленно переливается и пульсирует от басов. Выключено — неподвижная картинка",
+            s.sphereMotion,
+        ) { v -> update { it.copy(sphereMotion = v) } }
         Text("Цвет: ${Palettes.getOrElse(s.palette) { Palettes[0] }.name}", modifier = Modifier.padding(start = 16.dp, top = 4.dp))
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),

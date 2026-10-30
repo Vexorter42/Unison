@@ -54,6 +54,8 @@ data class AppSettings(
     val palette: Int = 0,
     /** Цвета экрана берутся из обложки текущего трека (поверх выбранной палитры). */
     val coverTheme: Boolean = true,
+    /** Сфера Моей волны шевелится и пульсирует от басов. */
+    val sphereMotion: Boolean = true,
     /** Сессия YouTube Music (cookie после входа) и имя аккаунта. */
     val ytCookie: String? = null,
     val ytAccountName: String? = null,
@@ -92,6 +94,7 @@ class SettingsRepository(private val context: Context) {
         val liquid = booleanPreferencesKey("liquid_glass")
         val palette = intPreferencesKey("palette")
         val coverTheme = booleanPreferencesKey("cover_theme")
+        val sphereMotion = booleanPreferencesKey("sphere_motion")
         val ytCookie = stringPreferencesKey("yt_cookie")
         val ytName = stringPreferencesKey("yt_name")
     }
@@ -135,6 +138,7 @@ class SettingsRepository(private val context: Context) {
         liquidGlass = p[Keys.liquid] ?: true,
         palette = p[Keys.palette] ?: 0,
         coverTheme = p[Keys.coverTheme] ?: true,
+        sphereMotion = p[Keys.sphereMotion] ?: true,
         ytCookie = p[Keys.ytCookie],
         ytAccountName = p[Keys.ytName],
     )
@@ -165,6 +169,7 @@ class SettingsRepository(private val context: Context) {
         p[Keys.liquid] = s.liquidGlass
         p[Keys.palette] = s.palette
         p[Keys.coverTheme] = s.coverTheme
+        p[Keys.sphereMotion] = s.sphereMotion
         p.putOrRemove(Keys.ytCookie, s.ytCookie)
         p.putOrRemove(Keys.ytName, s.ytAccountName)
     }

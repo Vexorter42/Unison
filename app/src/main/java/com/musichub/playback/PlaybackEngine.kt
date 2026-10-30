@@ -23,7 +23,11 @@ import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import com.musichub.AppGraph
@@ -131,7 +135,18 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         .setCacheKeyFactory(keyFactory)
         .setUpstreamDataSourceFactory(network)
 
-    val player: ExoPlayer = ExoPlayer.Builder(context)
+    /** Сила басов для сферы Моей волны: копия звука до громкости, сам звук не меняется. */
+    val bassMeter = BassMeter()
+
+    private val renderers = object : DefaultRenderersFactory(context) {
+        override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
+            DefaultAudioSink.Builder(context)
+                .setAudioProcessorChain(DefaultAudioSink.DefaultAudioProcessorChain(TeeAudioProcessor(bassMeter)))
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .build()
+    }
+
+    val player: ExoPlayer = ExoPlayer.Builder(context, renderers)
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(
                 SchemeRoutingDataSource.Factory(playbackFactory, DefaultDataSource.Factory(context), network),

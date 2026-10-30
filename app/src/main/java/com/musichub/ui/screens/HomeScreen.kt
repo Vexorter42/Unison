@@ -44,8 +44,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -57,6 +61,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -66,6 +72,7 @@ import androidx.navigation.NavController
 import com.musichub.App
 import com.musichub.ui.GlassChip
 import com.musichub.ui.PrimaryPill
+import com.musichub.ui.WaveSphere
 import com.musichub.ui.icons.UnisonIcons
 import com.musichub.ui.liquid.LocalBottomInset
 import com.musichub.ui.liquid.glass
@@ -74,8 +81,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
-import kotlin.math.cos
-import kotlin.math.sin
 
 /** Настроение Моей волны: значение для API Яндекса, подпись, иконка и свои цвета. */
 private class Mood(val value: String, val label: String, val icon: ImageVector, val from: Color, val to: Color)
@@ -130,11 +135,19 @@ fun HomeScreen(nav: NavController) {
         val moodIndex = moods.indexOfFirst { it.value == settings.waveMood }.coerceAtLeast(0)
         val mood = moods[moodIndex]
         val diversity = diversities.firstOrNull { it.value == settings.waveDiversity } ?: diversities[0]
+        val waveOn = state.waveMode && state.isPlaying
+        // Басы меряем, только пока главная на экране, сфера живая и играет именно волна
+        DisposableEffect(settings.sphereMotion, waveOn) {
+            engine.bassMeter.enabled = settings.sphereMotion && waveOn
+            onDispose { engine.bassMeter.enabled = false }
+        }
         WaveHero(
             mood = mood,
             subtitle = "${mood.label} · ${diversity.label}",
-            playing = state.waveMode && state.isPlaying,
+            playing = waveOn,
             loggedIn = settings.yandexLoggedIn,
+            sphereMotion = settings.sphereMotion,
+            bass = { if (waveOn) engine.bassMeter.level() else 0f },
             onPlay = { if (state.waveMode) engine.togglePlay() else engine.startWave() },
             onLogin = { nav.navigate("login/ya") },
             modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
@@ -171,6 +184,8 @@ private fun WaveHero(
     subtitle: String,
     playing: Boolean,
     loggedIn: Boolean,
+    sphereMotion: Boolean,
+    bass: () -> Float,
     onPlay: () -> Unit,
     onLogin: () -> Unit,
     modifier: Modifier = Modifier,
@@ -179,27 +194,32 @@ private fun WaveHero(
     val from by animateColorAsState(mood.from, tween(700), label = "from")
     val to by animateColorAsState(mood.to, tween(700), label = "to")
     val t = rememberInfiniteTransition(label = "hero")
-    val phase by t.animateFloat(0f, (2 * Math.PI).toFloat(), infiniteRepeatable(tween(14_000, easing = LinearEasing)), label = "phase")
     val pulse by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1_800, easing = LinearEasing), RepeatMode.Restart), label = "pulse")
 
-    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(Color(0xFF0E0E14))) {
-        // Плавающие пятна цвета — фон «дышит» под музыку
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            fun blob(color: Color, cx: Float, cy: Float, r: Float) =
-                drawCircle(Brush.radialGradient(listOf(color, Color.Transparent), Offset(cx, cy), r), r, Offset(cx, cy))
-            blob(from.copy(alpha = 0.85f), w * (0.3f + 0.15f * cos(phase)), h * (0.28f + 0.08f * sin(phase)), w * 0.9f)
-            blob(to.copy(alpha = 0.7f), w * (0.75f + 0.12f * sin(phase * 0.8f)), h * (0.55f + 0.1f * cos(phase * 0.8f)), w * 0.8f)
-            blob(from.copy(alpha = 0.45f), w * (0.5f + 0.2f * sin(phase * 1.3f)), h * (0.95f + 0.05f * cos(phase)), w * 0.7f)
-        }
+    var box by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var titleCenter by remember { mutableStateOf<Offset?>(null) }
+
+    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(Color(0xFF0E0E14)).onGloballyPositioned { box = it }) {
+        // Сфера из светящихся лент, центр — на надписи «Моя волна»
+        WaveSphere(from, to, motion = sphereMotion, bass = bass, center = { titleCenter }, modifier = Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize()) {
             Column(
                 Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text("Моя волна", fontSize = 38.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
+                Text(
+                    "Моя волна",
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.onGloballyPositioned { c ->
+                        box?.takeIf { it.isAttached }?.let { b ->
+                            titleCenter = b.localPositionOf(c, Offset(c.size.width / 2f, c.size.height / 2f))
+                        }
+                    },
+                )
                 Text(subtitle, color = Color.White.copy(alpha = 0.8f), fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(28.dp))
                 if (loggedIn) {
