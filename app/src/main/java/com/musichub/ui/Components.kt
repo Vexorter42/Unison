@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -284,6 +285,7 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
     val engine = App.graph.engine
     val state by engine.state.collectAsStateWithLifecycle()
     val track = state.track ?: return
+    val view = LocalView.current
     val spin = remember { Animatable(0f) }
     LaunchedEffect(state.isPlaying) {
         while (state.isPlaying) {
@@ -341,7 +343,7 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
             // «Дальше» здесь не нужна — треки перелистываются свайпом по полоске; вместо неё — лайк
             val liked by App.graph.favorites.keys.collectAsStateWithLifecycle()
             val isLiked = track.key in liked
-            IconButton(onClick = { engine.toggleLike(track) }) {
+            IconButton(onClick = { view.hapticConfirm(); engine.toggleLike(track) }) {
                 Icon(
                     if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                     "Нравится",
@@ -436,6 +438,7 @@ fun Modifier.swipeTracks(
     onPrevious: () -> Unit,
 ): Modifier = composed {
     val scope = rememberCoroutineScope()
+    val view = LocalView.current
     var width by remember { mutableFloatStateOf(1f) }
     val next by rememberUpdatedState(onNext)
     val prev by rememberUpdatedState(onPrevious)
@@ -458,12 +461,14 @@ fun Modifier.swipeTracks(
                     when {
                         (v < -width * SWIPE_THRESHOLD || flingNext) && hasNext -> {
                             offset.animateTo(-width, tween(140))
+                            view.hapticConfirm()
                             next()
                             offset.snapTo(width)
                             offset.animateTo(0f, settle)
                         }
                         v > width * SWIPE_THRESHOLD || flingPrev -> {
                             offset.animateTo(width, tween(140))
+                            view.hapticConfirm()
                             prev()
                             offset.snapTo(-width)
                             offset.animateTo(0f, settle)

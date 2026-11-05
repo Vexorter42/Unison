@@ -79,6 +79,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,6 +93,7 @@ import com.musichub.lyrics.Lyrics
 import com.musichub.ui.Cover
 import com.musichub.ui.CoverBackdrop
 import com.musichub.ui.SourceBadge
+import com.musichub.ui.hapticConfirm
 import com.musichub.ui.swipeTracks
 import com.musichub.util.formatTime
 import kotlinx.coroutines.launch
@@ -115,6 +117,7 @@ fun PlayerScreen(onBack: () -> Unit) {
         return
     }
     val sleepActive = state.sleepAtMs != null || state.sleepEndOfTrack
+    val view = LocalView.current
 
     // Свайп вниз сворачивает плеер в мини-плеер: экран едет за пальцем, уменьшается и скругляется
     val scope = rememberCoroutineScope()
@@ -292,10 +295,10 @@ fun PlayerScreen(onBack: () -> Unit) {
 
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             val isLiked = track.key in liked
-            IconButton(onClick = engine::toggleLike) {
+            IconButton(onClick = { view.hapticConfirm(); engine.toggleLike() }) {
                 Icon(if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Нравится", tint = if (isLiked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface)
             }
-            IconButton(onClick = engine::dislike) { Icon(Icons.Rounded.ThumbDown, "Не нравится") }
+            IconButton(onClick = { view.hapticConfirm(); engine.dislike() }) { Icon(Icons.Rounded.ThumbDown, "Не нравится") }
             if (track.source == Source.SOUNDCLOUD || track.source == Source.LOCAL) {
                 IconButton(onClick = {}, enabled = false) { Icon(Icons.Rounded.Download, "Скачать недоступно") }
             } else if (track.key in downloaded) {
