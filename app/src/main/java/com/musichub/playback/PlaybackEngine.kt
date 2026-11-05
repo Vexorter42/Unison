@@ -160,6 +160,9 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
+        // Предзагрузка следующего трека: пока играет текущий, следующий уже резолвится и кешируется,
+        // поэтому переключение — без паузы (работает и в Моей волне)
+        .apply { preloadConfiguration = ExoPlayer.PreloadConfiguration(30_000_000L) }
 
     // ---------- Состояние для UI ----------
 
@@ -231,7 +234,10 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_ENDED) finishCurrent()
+            if (playbackState == Player.STATE_ENDED) {
+                finishCurrent()
+                maybeAutoContinue()
+            }
             publish()
         }
 
@@ -435,6 +441,14 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         player.prepare()
         player.play()
         publish()
+    }
+
+    /** Обычная очередь доиграла до конца — по желанию продолжаем похожими на последний трек. */
+    private fun maybeAutoContinue() {
+        if (waveMode || !graph.settings.current.autoContinueSimilar) return
+        val last = queueCache.lastOrNull() ?: return
+        _messages.tryEmit("Очередь кончилась — играю похожие на «${last.title}»")
+        startRadio(last)
     }
 
     private fun maybeRefillWave() {
@@ -658,6 +672,13 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         if (t == null) return
         recentKeys.addLast(t.key)
         if (recentKeys.size > 200) recentKeys.removeFirst()
+        // Заранее ищем ссылку на поток следующего трека — переключение будет мгновенным
+        val nextIndex = player.currentMediaItemIndex + 1
+        if (nextIndex < player.mediaItemCount) {
+            player.getMediaItemAt(nextIndex).track
+                ?.takeIf { it.source != Source.LOCAL }
+                ?.let { next -> scope.launch(Dispatchers.IO) { runCatching { resolver.resolve(StreamResolver.uriFor(next)) } } }
+        }
         val station = curStation
         if (curFromWave && station != null && t.source == Source.YANDEX) {
             scope.launch { graph.yandex.waveFeedback("trackStarted", waveBatchId, t.sourceId, station = station) }

@@ -46,10 +46,26 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
             "&redirect_uri=https://oauth.vk.com/blank.html&display=mobile&response_type=token&revoke=1"
         private const val PAGE = 200
         private const val MAX_TRACKS = 3000
+        /** Минимальный интервал между запросами к VK — защита от flood control. */
+        private const val MIN_INTERVAL_MS = 350L
     }
 
     private val uid: String
         get() = settings.current.vkUserId?.toString() ?: throw VkException(5, "Войдите во ВКонтакте в настройках")
+
+    private val throttleLock = Any()
+    @Volatile private var lastCallAt = 0L
+
+    /**
+     * VK ограничивает частоту запросов (≈3 в секунду): если ломиться чаще, включается
+     * «flood control» (код 9) и музыка перестаёт отвечать на 10–60 минут. Поэтому все
+     * вызовы идут с минимальным интервалом.
+     */
+    private fun throttle() = synchronized(throttleLock) {
+        val wait = lastCallAt + MIN_INTERVAL_MS - System.currentTimeMillis()
+        if (wait > 0) Thread.sleep(wait)
+        lastCallAt = System.currentTimeMillis()
+    }
 
     private fun call(method: String, params: Map<String, String> = emptyMap(), token: String? = settings.current.vkToken): JsonElement {
         token ?: throw VkException(5, "Войдите во ВКонтакте в настройках")
@@ -59,15 +75,17 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
             add("v", VERSION)
         }.build()
         val request = Request.Builder().url(API + method).header("User-Agent", USER_AGENT).post(body).build()
-        // Код 6 — «слишком много запросов в секунду»: VK просит чуть подождать, повторяем пару раз
-        repeat(3) { attempt ->
+        throttle()
+        repeat(4) { attempt ->
             http.newCall(request).execute().use { resp ->
                 val root = Json.parseToJsonElement(resp.body?.string().orEmpty()).obj()
                     ?: throw VkException(-1, "ВК: пустой ответ")
                 val e = root["error"].obj() ?: return root["response"] ?: JsonNull
                 val code = e.long("error_code")?.toInt() ?: -1
-                if (code == 6 && attempt < 2) {
-                    Thread.sleep(400L * (attempt + 1))
+                // 6 — «слишком много запросов в секунду», 9 — flood control: оба лечатся паузой и повтором
+                if ((code == 6 || code == 9) && attempt < 3) {
+                    Thread.sleep(if (code == 6) 500L * (attempt + 1) else 2_000L * (attempt + 1))
+                    throttle()
                     return@use
                 }
                 throw VkException(code, friendlyError(code, e.str("error_msg")))

@@ -217,8 +217,24 @@ fun PlayerScreen(onBack: () -> Unit) {
             }
         }
 
-        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Text(track.artists, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            track.title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            // Тап по названию — похожие треки
+            modifier = Modifier.clickable { graph.pendingSimilar.value = track },
+        )
+        // Тап по исполнителю — найти его в поиске
+        Text(
+            track.artists,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { graph.pendingSearch.value = track.artists },
+        )
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             SourceBadge(track.source)
             if (state.viaFallback) Text("играет замена из другого сервиса", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)

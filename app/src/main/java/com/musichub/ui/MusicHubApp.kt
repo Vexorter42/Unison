@@ -1,5 +1,6 @@
 package com.musichub.ui
 
+import android.net.Uri
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -47,6 +49,7 @@ import com.musichub.ui.screens.LoginScreen
 import com.musichub.ui.screens.PlayerScreen
 import com.musichub.ui.screens.SearchScreen
 import com.musichub.ui.screens.SettingsScreen
+import com.musichub.ui.screens.SimilarScreen
 import com.musichub.ui.screens.StatsScreen
 import com.musichub.ui.screens.TrackListScreen
 import com.musichub.ui.screens.TransferScreen
@@ -83,6 +86,18 @@ fun MusicHubApp() {
             nav.openTracks(it.kind, it.arg, it.title)
         }
     }
+    // Тап по исполнителю — поиск, тап по названию — похожие треки
+    val pendingSearch by graph.pendingSearch.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingSearch) {
+        pendingSearch?.let {
+            graph.pendingSearch.value = null
+            nav.navigate("search?q=${Uri.encode(it)}")
+        }
+    }
+    val pendingSimilar by graph.pendingSimilar.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingSimilar) {
+        if (pendingSimilar != null) nav.navigate("similar")
+    }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     val tabIndex = tabRoutes.indexOf(route)
@@ -115,7 +130,13 @@ fun MusicHubApp() {
                     exitTransition = { fadeOut(tween(140)) },
                 ) {
                     composable("home") { HomeScreen(nav) }
-                    composable("search") { SearchScreen(onBack = { nav.popBackStack() }) }
+                    composable(
+                        "search?q={q}",
+                        arguments = listOf(navArgument("q") { defaultValue = "" }),
+                    ) { e ->
+                        SearchScreen(initialQuery = e.arguments?.getString("q").orEmpty(), onBack = { nav.popBackStack() })
+                    }
+                    composable("similar") { SimilarScreen(onBack = { nav.popBackStack() }) }
                     composable("library") { LibraryScreen(nav) }
                     composable("stats") { StatsScreen() }
                     composable("settings") { SettingsScreen(nav) }

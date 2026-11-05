@@ -85,7 +85,7 @@ class SearchViewModel : ViewModel() {
 }
 
 @Composable
-fun SearchScreen(onBack: () -> Unit, vm: SearchViewModel = viewModel()) {
+fun SearchScreen(initialQuery: String = "", onBack: () -> Unit, vm: SearchViewModel = viewModel()) {
     val graph = App.graph
     val query by vm.query.collectAsStateWithLifecycle()
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -94,8 +94,11 @@ fun SearchScreen(onBack: () -> Unit, vm: SearchViewModel = viewModel()) {
     val engine = graph.engine
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    // Клавиатура открывается сразу — экран поиска ради неё и открывают
-    LaunchedEffect(Unit) { if (vm.query.value.isEmpty()) focus.requestFocus() }
+    // Предзаполненный запрос (тап по исполнителю) — сразу ищем, клавиатуру не открываем
+    LaunchedEffect(Unit) {
+        if (initialQuery.isNotBlank() && vm.query.value.isBlank()) vm.query.value = initialQuery
+        if (vm.query.value.isEmpty()) focus.requestFocus()
+    }
 
     val tracks = ui.result?.tracks.orEmpty().filter { t ->
         filter == null || t.source == filter || t.alternates.any { it.source == filter }

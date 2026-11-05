@@ -8,6 +8,7 @@ import com.musichub.data.LibraryRepository
 import com.musichub.data.SettingsRepository
 import com.musichub.data.TrackSources
 import com.musichub.data.db.AppDatabase
+import com.musichub.data.model.Track
 import com.musichub.links.LinkTarget
 import com.musichub.local.LocalMusic
 import com.musichub.lyrics.LyricsRepository
@@ -70,6 +71,12 @@ class AppGraph(app: Application) {
 
     /** Ссылка, пришедшая через «Поделиться» / «Открыть в», — экран откроет её при первой возможности. */
     val pendingLink = MutableStateFlow<LinkTarget?>(null)
+
+    /** Запрос, который надо открыть в поиске (тап по исполнителю). */
+    val pendingSearch = MutableStateFlow<String?>(null)
+
+    /** Трек, для которого надо показать экран похожих (тап по названию). */
+    val pendingSimilar = MutableStateFlow<Track?>(null)
     val transfer = TransferRepository(this)
     val equalizer = EqualizerController(app)
     val engine: PlaybackEngine by lazy { PlaybackEngine(app, this) }

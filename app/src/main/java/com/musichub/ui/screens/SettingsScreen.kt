@@ -17,6 +17,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -119,315 +123,351 @@ fun SettingsScreen(nav: NavController) {
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = LocalBottomInset.current)) {
         Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
 
-        Group("Оформление")
-        SwitchRow(
-            "Liquid Glass",
-            "Стекло с преломлением, живой фон и плавающий бар-капсула",
-            s.liquidGlass,
-        ) { v -> update { it.copy(liquidGlass = v) } }
-        SwitchRow(
-            "Цвета из обложки",
-            "Экран окрашивается в цвета трека, который играет. Без музыки — выбранная палитра",
-            s.coverTheme,
-        ) { v -> update { it.copy(coverTheme = v) } }
-        SwitchRow(
-            "Живая сфера в Моей волне",
-            "Сфера за надписью медленно переливается и пульсирует от басов. Выключено — неподвижная картинка",
-            s.sphereMotion,
-        ) { v -> update { it.copy(sphereMotion = v) } }
-        Text("Цвет: ${Palettes.getOrElse(s.palette) { Palettes[0] }.name}", modifier = Modifier.padding(start = 16.dp, top = 4.dp))
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Palettes.forEachIndexed { i, p ->
-                Box(
-                    Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(p.gradient)
-                        .border(if (i == s.palette) 3.dp else 0.dp, Color.White, CircleShape)
-                        .liquidClickable(pressedScale = 0.85f) { update { it.copy(palette = i) } },
-                )
-            }
-        }
-
-        Group("Аккаунты")
-        AccountRow(
-            title = "Яндекс Музыка",
-            account = s.yandexLogin.takeIf { s.yandexLoggedIn },
-            onLogin = { nav.navigate("login/ya") },
-            onLogout = {
-                CookieManager.getInstance().removeAllCookies(null)
-                update { it.copy(yandexToken = null, yandexUid = null, yandexLogin = null) }
-            },
-        )
-        AccountRow(
-            title = "YouTube Music",
-            account = s.ytAccountName.takeIf { s.ytLoggedIn },
-            onLogin = { nav.navigate("login/yt") },
-            onLogout = {
-                CookieManager.getInstance().removeAllCookies(null)
-                update { it.copy(ytCookie = null, ytAccountName = null) }
-            },
-        )
-        AccountRow(
-            title = "ВКонтакте",
-            account = s.vkName.takeIf { s.vkLoggedIn },
-            onLogin = { nav.navigate("login/vk") },
-            onLogout = {
-                CookieManager.getInstance().removeAllCookies(null)
-                update { it.copy(vkToken = null, vkUserId = null, vkName = null) }
-            },
-        )
-
-        Group("Поиск")
-        SwitchRow("Искать на YouTube", null, s.searchYoutube) { v -> update { it.copy(searchYoutube = v) } }
-        SwitchRow(
-            "Искать на SoundCloud",
-            "Ремиксы, slowed-версии и треки независимых авторов. Только онлайн, без скачивания",
-            s.searchSoundcloud,
-        ) { v -> update { it.copy(searchSoundcloud = v) } }
-        SwitchRow("Искать во ВКонтакте", "Нужен вход во ВК", s.searchVk) { v -> update { it.copy(searchVk = v) } }
-
-        Group("Воспроизведение")
-        SwitchRow(
-            "Замена из других сервисов",
-            "Если трек не играет в своём сервисе (нет подписки, удалён, регион) — найти его в другом",
-            s.fallbackToOthers,
-        ) { v -> update { it.copy(fallbackToOthers = v) } }
-        SwitchRow(
-            "Подмешивать YouTube в Мою волну",
-            "Похожие треки с YouTube между треками волны",
-            s.mixYoutubeInWave,
-        ) { v -> update { it.copy(mixYoutubeInWave = v) } }
-        if (s.mixYoutubeInWave) {
-            SliderRow("Каждый ${s.mixEvery}-й трек", s.mixEvery.toFloat(), 2f..10f, steps = 7) { v -> update { it.copy(mixEvery = v.toInt()) } }
-        }
-        Text("Качество", modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Quality.entries.forEach { q ->
-                FilterChip(selected = s.quality == q, onClick = { update { it.copy(quality = q) } }, label = { Text(q.label) })
-            }
-        }
-        SliderRow(
-            if (s.fadeSeconds == 0) "Плавные переходы: выкл" else "Плавные переходы: ${s.fadeSeconds} с",
-            s.fadeSeconds.toFloat(), 0f..12f, steps = 11,
-        ) { v -> update { it.copy(fadeSeconds = v.toInt()) } }
-        NavRow("Эквалайзер") { nav.navigate("equalizer") }
-
-        Group("Сеть и VPN")
-        GlassPanel(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Happ: Яндекс и ВК напрямую, YouTube через VPN", fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Правило в самом Happ, работает для всего телефона. После добавления переподключитесь к серверу.\n\n" +
-                        "Полный — Яндекс, ВК и все российские сайты напрямую. Happ сначала скачает геофайлы (~27 МБ); " +
-                        "пока они не скачались, интернет через VPN может не работать.\n" +
-                        "Простой — только Яндекс и ВК, работает сразу.\n\n" +
-                        "Если интернет пропал — «Отключить в Happ» и переподключитесь.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { openHapp(context, HappRouting.simpleDeeplink) }) { Text("Простой") }
-                    OutlinedButton(onClick = { openHapp(context, HappRouting.deeplink) }) { Text("Полный") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { openHapp(context, HappRouting.OFF_DEEPLINK) }) { Text("Отключить в Happ") }
-                    TextButton(onClick = { copy(context, HappRouting.simpleDeeplink) }) { Text("Копировать простой") }
-                }
-            }
-        }
-        SwitchRow(
-            "YouTube через прокси",
-            "Для случая, когда приложение исключено из VPN. В Happ: Настройки → Расширенные → «Разрешить LAN-подключения», порт SOCKS5 обычно 10808",
-            s.ytProxyEnabled,
-        ) { v -> update { it.copy(ytProxyEnabled = v) } }
-        if (s.ytProxyEnabled) {
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("SOCKS", "HTTP").forEach { t ->
-                    FilterChip(selected = s.ytProxyType == t, onClick = { update { it.copy(ytProxyType = t) } }, label = { Text(t) })
-                }
-            }
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                var host by remember { mutableStateOf(s.ytProxyHost) }
-                var port by remember { mutableStateOf(s.ytProxyPort.toString()) }
-                OutlinedTextField(
-                    value = host,
-                    onValueChange = { host = it.trim(); update { st -> st.copy(ytProxyHost = host.ifEmpty { "127.0.0.1" }) } },
-                    label = { Text("Адрес") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = { v ->
-                        port = v.filter(Char::isDigit).take(5)
-                        port.toIntOrNull()?.takeIf { it in 1..65535 }?.let { p -> update { st -> st.copy(ytProxyPort = p) } }
-                    },
-                    label = { Text("Порт") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.width(110.dp),
-                )
-            }
-        }
-        SwitchRow(
-            "Яндекс и ВК мимо VPN",
-            "Только для VPN, которые разрешают обход. С Happ не работает и не нужен — используйте профиль Happ выше",
-            s.directBypassVpn,
-        ) { v -> update { it.copy(directBypassVpn = v) } }
-        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(enabled = !diagnosing, onClick = {
-                diagnosing = true
-                scope.launch {
-                    diagnostics = graph.router.diagnose()
-                    diagnosing = false
-                }
-            }) { Text(if (diagnosing) "Проверяю…" else "Проверить маршруты") }
-        }
-        diagnostics?.forEach { line ->
-            Text(
-                line,
-                style = MaterialTheme.typography.bodySmall,
-                color = if ("ошибка" in line) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        Section("Аккаунты", initiallyExpanded = true) {
+            AccountRow(
+                title = "Яндекс Музыка",
+                account = s.yandexLogin.takeIf { s.yandexLoggedIn },
+                onLogin = { nav.navigate("login/ya") },
+                onLogout = {
+                    CookieManager.getInstance().removeAllCookies(null)
+                    update { it.copy(yandexToken = null, yandexUid = null, yandexLogin = null) }
+                },
+            )
+            AccountRow(
+                title = "YouTube Music",
+                account = s.ytAccountName.takeIf { s.ytLoggedIn },
+                onLogin = { nav.navigate("login/yt") },
+                onLogout = {
+                    CookieManager.getInstance().removeAllCookies(null)
+                    update { it.copy(ytCookie = null, ytAccountName = null) }
+                },
+            )
+            AccountRow(
+                title = "ВКонтакте",
+                account = s.vkName.takeIf { s.vkLoggedIn },
+                onLogin = { nav.navigate("login/vk") },
+                onLogout = {
+                    CookieManager.getInstance().removeAllCookies(null)
+                    update { it.copy(vkToken = null, vkUserId = null, vkName = null) }
+                },
             )
         }
 
-        Group("Кеш и загрузки")
-        // Ближайший вариант к сохранённому (раньше были и другие размеры)
-        val sizeIndex = cacheSizes.indices.minBy { kotlin.math.abs(cacheSizes[it] - s.autoCacheMb) }
-        SliderRow(
-            "Авто-кеш: до ${formatMb(s.autoCacheMb.toLong())}",
-            sizeIndex.toFloat(), 0f..(cacheSizes.size - 1).toFloat(), steps = cacheSizes.size - 2,
-        ) { v -> update { it.copy(autoCacheMb = cacheSizes[v.toInt()]) } }
-        usage?.let { (auto, downloads) ->
-            val free = remember(usage) { runCatching { StatFs(context.cacheDir.path).availableBytes }.getOrDefault(0L) }
+        Section("Оформление", initiallyExpanded = true) {
+            SwitchRow(
+                "Liquid Glass",
+                "Стекло с преломлением, живой фон и плавающий бар-капсула",
+                s.liquidGlass,
+            ) { v -> update { it.copy(liquidGlass = v) } }
+            SwitchRow(
+                "Цвета из обложки",
+                "Экран окрашивается в цвета трека, который играет. Без музыки — выбранная палитра",
+                s.coverTheme,
+            ) { v -> update { it.copy(coverTheme = v) } }
+            SwitchRow(
+                "Живая сфера в Моей волне",
+                "Сфера за надписью медленно переливается и пульсирует от басов. Выключено — неподвижная картинка",
+                s.sphereMotion,
+            ) { v -> update { it.copy(sphereMotion = v) } }
+            Text("Цвет: ${Palettes.getOrElse(s.palette) { Palettes[0] }.name}", modifier = Modifier.padding(start = 16.dp, top = 4.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Palettes.forEachIndexed { i, p ->
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(p.gradient)
+                            .border(if (i == s.palette) 3.dp else 0.dp, Color.White, CircleShape)
+                            .liquidClickable(pressedScale = 0.85f) { update { it.copy(palette = i) } },
+                    )
+                }
+            }
+        }
+
+        Section("Поиск") {
+            SwitchRow("Искать на YouTube", null, s.searchYoutube) { v -> update { it.copy(searchYoutube = v) } }
+            SwitchRow(
+                "Искать на SoundCloud",
+                "Ремиксы, slowed-версии и треки независимых авторов. Только онлайн, без скачивания",
+                s.searchSoundcloud,
+            ) { v -> update { it.copy(searchSoundcloud = v) } }
+            SwitchRow("Искать во ВКонтакте", "Нужен вход во ВК", s.searchVk) { v -> update { it.copy(searchVk = v) } }
+        }
+
+        Section("Воспроизведение") {
+            SwitchRow(
+                "Замена из других сервисов",
+                "Если трек не играет в своём сервисе (нет подписки, удалён, регион) — найти его в другом",
+                s.fallbackToOthers,
+            ) { v -> update { it.copy(fallbackToOthers = v) } }
+            SwitchRow(
+                "Похожие, когда очередь кончилась",
+                "Плейлист доиграл — продолжить похожими треками на последний",
+                s.autoContinueSimilar,
+            ) { v -> update { it.copy(autoContinueSimilar = v) } }
+            SwitchRow(
+                "Подмешивать YouTube в Мою волну",
+                "Похожие треки с YouTube между треками волны",
+                s.mixYoutubeInWave,
+            ) { v -> update { it.copy(mixYoutubeInWave = v) } }
+            if (s.mixYoutubeInWave) {
+                SliderRow("Каждый ${s.mixEvery}-й трек", s.mixEvery.toFloat(), 2f..10f, steps = 7) { v -> update { it.copy(mixEvery = v.toInt()) } }
+            }
+            Text("Качество", modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Quality.entries.forEach { q ->
+                    FilterChip(selected = s.quality == q, onClick = { update { it.copy(quality = q) } }, label = { Text(q.label) })
+                }
+            }
+            SliderRow(
+                if (s.fadeSeconds == 0) "Плавные переходы: выкл" else "Плавные переходы: ${s.fadeSeconds} с",
+                s.fadeSeconds.toFloat(), 0f..12f, steps = 11,
+            ) { v -> update { it.copy(fadeSeconds = v.toInt()) } }
+            NavRow("Эквалайзер") { nav.navigate("equalizer") }
+        }
+
+        Section("Сеть и VPN") {
+            GlassPanel(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Happ: Яндекс и ВК напрямую, YouTube через VPN", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Правило в самом Happ, работает для всего телефона. После добавления переподключитесь к серверу.\n\n" +
+                            "Полный — Яндекс, ВК и все российские сайты напрямую. Happ сначала скачает геофайлы (~27 МБ); " +
+                            "пока они не скачались, интернет через VPN может не работать.\n" +
+                            "Простой — только Яндекс и ВК, работает сразу.\n\n" +
+                            "Если интернет пропал — «Отключить в Happ» и переподключитесь.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { openHapp(context, HappRouting.simpleDeeplink) }) { Text("Простой") }
+                        OutlinedButton(onClick = { openHapp(context, HappRouting.deeplink) }) { Text("Полный") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { openHapp(context, HappRouting.OFF_DEEPLINK) }) { Text("Отключить в Happ") }
+                        TextButton(onClick = { copy(context, HappRouting.simpleDeeplink) }) { Text("Копировать простой") }
+                    }
+                }
+            }
+            SwitchRow(
+                "YouTube через прокси",
+                "Для случая, когда приложение исключено из VPN. В Happ: Настройки → Расширенные → «Разрешить LAN-подключения», порт SOCKS5 обычно 10808",
+                s.ytProxyEnabled,
+            ) { v -> update { it.copy(ytProxyEnabled = v) } }
+            if (s.ytProxyEnabled) {
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("SOCKS", "HTTP").forEach { t ->
+                        FilterChip(selected = s.ytProxyType == t, onClick = { update { it.copy(ytProxyType = t) } }, label = { Text(t) })
+                    }
+                }
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    var host by remember { mutableStateOf(s.ytProxyHost) }
+                    var port by remember { mutableStateOf(s.ytProxyPort.toString()) }
+                    OutlinedTextField(
+                        value = host,
+                        onValueChange = { host = it.trim(); update { st -> st.copy(ytProxyHost = host.ifEmpty { "127.0.0.1" }) } },
+                        label = { Text("Адрес") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = port,
+                        onValueChange = { v ->
+                            port = v.filter(Char::isDigit).take(5)
+                            port.toIntOrNull()?.takeIf { it in 1..65535 }?.let { p -> update { st -> st.copy(ytProxyPort = p) } }
+                        },
+                        label = { Text("Порт") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.width(110.dp),
+                    )
+                }
+            }
+            SwitchRow(
+                "Яндекс и ВК мимо VPN",
+                "Только для VPN, которые разрешают обход. С Happ не работает и не нужен — используйте профиль Happ выше",
+                s.directBypassVpn,
+            ) { v -> update { it.copy(directBypassVpn = v) } }
+            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(enabled = !diagnosing, onClick = {
+                    diagnosing = true
+                    scope.launch {
+                        diagnostics = graph.router.diagnose()
+                        diagnosing = false
+                    }
+                }) { Text(if (diagnosing) "Проверяю…" else "Проверить маршруты") }
+            }
+            diagnostics?.forEach { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if ("ошибка" in line) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
+            }
+        }
+
+        Section("Кеш и загрузки") {
+            // Ближайший вариант к сохранённому (раньше были и другие размеры)
+            val sizeIndex = cacheSizes.indices.minBy { kotlin.math.abs(cacheSizes[it] - s.autoCacheMb) }
+            SliderRow(
+                "Авто-кеш: до ${formatMb(s.autoCacheMb.toLong())}",
+                sizeIndex.toFloat(), 0f..(cacheSizes.size - 1).toFloat(), steps = cacheSizes.size - 2,
+            ) { v -> update { it.copy(autoCacheMb = cacheSizes[v.toInt()]) } }
+            usage?.let { (auto, downloads) ->
+                val free = remember(usage) { runCatching { StatFs(context.cacheDir.path).availableBytes }.getOrDefault(0L) }
+                Text(
+                    "Занято кешем: ${formatMb(auto / 1_048_576)} · скачано: ${formatMb(downloads / 1_048_576)} · " +
+                        "свободно на телефоне: ${formatMb(free / 1_048_576)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = { confirmClear = ClearTarget.CACHE },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                ) {
+                    Icon(Icons.Rounded.CleaningServices, null, Modifier.size(18.dp))
+                    Text("Очистить кеш", Modifier.padding(start = 6.dp))
+                }
+                OutlinedButton(
+                    onClick = { confirmClear = ClearTarget.DOWNLOADS },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+                ) {
+                    Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp))
+                    Text("Удалить скачанное", Modifier.padding(start = 6.dp))
+                }
+            }
             Text(
-                "Занято кешем: ${formatMb(auto / 1_048_576)} · скачано: ${formatMb(downloads / 1_048_576)} · " +
-                    "свободно на телефоне: ${formatMb(free / 1_048_576)}",
+                "Кеш — то, что вы просто слушали; он чистится сам. Скачанное — то, что вы скачали для офлайна.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(
-                onClick = { confirmClear = ClearTarget.CACHE },
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            ) {
-                Icon(Icons.Rounded.CleaningServices, null, Modifier.size(18.dp))
-                Text("Очистить кеш", Modifier.padding(start = 6.dp))
-            }
-            OutlinedButton(
-                onClick = { confirmClear = ClearTarget.DOWNLOADS },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
-            ) {
-                Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp))
-                Text("Удалить скачанное", Modifier.padding(start = 6.dp))
+
+        Section("Резервная копия") {
+            Text(
+                "Свои плейлисты, «Любимое», статистика и настройки — в один файл. Входы в аккаунты в копию не попадают: " +
+                    "после восстановления войдите заново.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    exportLauncher.launch("unison-backup-$date.json")
+                }) { Text("Сохранить копию") }
+                OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
+                    Text("Восстановить")
+                }
             }
         }
-        Text(
-            "Кеш — то, что вы просто слушали; он чистится сам. Скачанное — то, что вы скачали для офлайна.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        confirmClear?.let { target ->
-            val sizeMb = usage?.let { (auto, downloads) -> (if (target == ClearTarget.CACHE) auto else downloads) / 1_048_576 } ?: 0
-            AlertDialog(
-                onDismissRequest = { confirmClear = null },
-                title = { Text(if (target == ClearTarget.CACHE) "Очистить кеш?" else "Удалить всё скачанное?") },
-                text = {
+
+        Section("Обновления") {
+            val updater = graph.updater
+            val updateState by updater.state.collectAsStateWithLifecycle()
+            ListItem(
+                headlineContent = { Text("Unison ${updater.currentVersion}") },
+                supportingContent = {
                     Text(
-                        if (target == ClearTarget.CACHE) {
-                            "Освободится ${formatMb(sizeMb)}. Скачанные треки останутся, а прослушанные будут заново загружаться из сети."
-                        } else {
-                            "Освободится ${formatMb(sizeMb)}. Скачанные треки перестанут играть без интернета — " +
-                                "их придётся скачать заново. Сами плейлисты и «Любимое» не пострадают."
+                        when (val u = updateState) {
+                            UpdateState.Checking -> "Проверяю…"
+                            UpdateState.UpToDate -> "У вас последняя версия"
+                            is UpdateState.Available -> "Доступна версия ${u.release.version}"
+                            is UpdateState.Downloading -> "Скачиваю ${(u.progress * 100).toInt()}%"
+                            is UpdateState.Installing -> "Устанавливаю…"
+                            is UpdateState.Failed -> u.message
+                            UpdateState.Idle -> "Обновления приходят с GitHub: ${updater.repo}"
                         },
                     )
                 },
-                confirmButton = {
-                    TextButton(onClick = {
-                        confirmClear = null
-                        scope.launch {
-                            if (target == ClearTarget.CACHE) {
-                                graph.engine.clearAutoCache()
-                                graph.engine.notify("Кеш очищен")
-                            } else {
-                                val n = graph.engine.clearDownloads()
-                                graph.engine.notify(if (n > 0) "Удалено скачанных треков: $n" else "Скачанное очищено")
-                            }
-                            usageReload++
-                        }
-                    }) {
-                        Text(
-                            if (target == ClearTarget.CACHE) "Очистить" else "Удалить",
-                            color = if (target == ClearTarget.DOWNLOADS) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                trailingContent = {
+                    TextButton(onClick = { updater.check() }, enabled = updateState !is UpdateState.Checking) { Text("Проверить") }
                 },
-                dismissButton = { TextButton(onClick = { confirmClear = null }) { Text("Отмена") } },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
         }
 
-        Group("Резервная копия")
-        Text(
-            "Свои плейлисты, «Любимое», статистика и настройки — в один файл. Входы в аккаунты в копию не попадают: " +
-                "после восстановления войдите заново.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                exportLauncher.launch("unison-backup-$date.json")
-            }) { Text("Сохранить копию") }
-            OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
-                Text("Восстановить")
-            }
+        Section("О приложении") {
+            Text(
+                "Unison — личный клиент для Яндекс Музыки, ВКонтакте и YouTube. Использует неофициальные API: " +
+                    "что-то может перестать работать после обновлений сервисов. Тексты песен — LRCLIB.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
+    }
 
-        Group("Обновления")
-        val updater = graph.updater
-        val updateState by updater.state.collectAsStateWithLifecycle()
-        ListItem(
-            headlineContent = { Text("Unison ${updater.currentVersion}") },
-            supportingContent = {
+    confirmClear?.let { target ->
+        val sizeMb = usage?.let { (auto, downloads) -> (if (target == ClearTarget.CACHE) auto else downloads) / 1_048_576 } ?: 0
+        AlertDialog(
+            onDismissRequest = { confirmClear = null },
+            title = { Text(if (target == ClearTarget.CACHE) "Очистить кеш?" else "Удалить всё скачанное?") },
+            text = {
                 Text(
-                    when (val u = updateState) {
-                        UpdateState.Checking -> "Проверяю…"
-                        UpdateState.UpToDate -> "У вас последняя версия"
-                        is UpdateState.Available -> "Доступна версия ${u.release.version}"
-                        is UpdateState.Downloading -> "Скачиваю ${(u.progress * 100).toInt()}%"
-                        is UpdateState.Installing -> "Устанавливаю…"
-                        is UpdateState.Failed -> u.message
-                        UpdateState.Idle -> "Обновления приходят с GitHub: ${updater.repo}"
+                    if (target == ClearTarget.CACHE) {
+                        "Освободится ${formatMb(sizeMb)}. Скачанные треки останутся, а прослушанные будут заново загружаться из сети."
+                    } else {
+                        "Освободится ${formatMb(sizeMb)}. Скачанные треки перестанут играть без интернета — " +
+                            "их придётся скачать заново. Сами плейлисты и «Любимое» не пострадают."
                     },
                 )
             },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = null
+                    scope.launch {
+                        if (target == ClearTarget.CACHE) {
+                            graph.engine.clearAutoCache()
+                            graph.engine.notify("Кеш очищен")
+                        } else {
+                            val n = graph.engine.clearDownloads()
+                            graph.engine.notify(if (n > 0) "Удалено скачанных треков: $n" else "Скачанное очищено")
+                        }
+                        usageReload++
+                    }
+                }) {
+                    Text(
+                        if (target == ClearTarget.CACHE) "Очистить" else "Удалить",
+                        color = if (target == ClearTarget.DOWNLOADS) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    )
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = null }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Раскрывающаяся категория настроек: заголовок со стрелкой, содержимое — по нажатию. */
+@Composable
+private fun Section(title: String, initiallyExpanded: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    Column {
+        ListItem(
+            headlineContent = { Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
             trailingContent = {
-                TextButton(onClick = { updater.check() }, enabled = updateState !is UpdateState.Checking) { Text("Проверить") }
+                Icon(
+                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    if (expanded) "Свернуть" else "Развернуть",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.clickable { expanded = !expanded },
         )
-
-        Group("О приложении")
-        Text(
-            "Unison — личный клиент для Яндекс Музыки, ВКонтакте и YouTube. Использует неофициальные API: " +
-                "что-то может перестать работать после обновлений сервисов. Тексты песен — LRCLIB.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
+        if (expanded) content()
     }
 }
 
@@ -445,17 +485,6 @@ private fun openHapp(context: Context, link: String) {
 private fun copy(context: Context, text: String) {
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Happ routing", text))
     Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-}
-
-@Composable
-private fun Group(title: String) {
-    Text(
-        title.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 4.dp),
-    )
 }
 
 @Composable

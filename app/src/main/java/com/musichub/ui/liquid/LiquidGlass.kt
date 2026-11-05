@@ -255,18 +255,21 @@ fun LiquidNavBar(
     LaunchedEffect(selected) {
         if (selected >= 0 && !dragging) position.animateTo(selected.toFloat(), spring(dampingRatio = 0.6f, stiffness = 240f))
     }
-    BoxWithConstraints(modifier.fillMaxWidth().height(66.dp).liquidCapsule(backdrop)) {
+    BoxWithConstraints(modifier.fillMaxWidth().height(62.dp).liquidCapsule(backdrop)) {
         val inner = 5.dp
         val tabW: Dp = (maxWidth - inner * 2) / items.size
+        // Пузырь у́же вкладки: не растекается на всю ячейку, а держится компактной каплей
+        val bubbleW = tabW * 0.78f
+        val bubblePad = (tabW - bubbleW) / 2
         val innerPx = with(LocalDensity.current) { inner.toPx() }
         val tabPx = with(LocalDensity.current) { tabW.toPx() }
         if (selected >= 0 || dragging) {
             val bubble = Modifier
-                .padding(start = inner, top = inner, bottom = inner)
-                .width(tabW)
+                .padding(start = inner, top = inner + 2.dp, bottom = inner + 2.dp)
+                .width(bubbleW)
                 .fillMaxHeight()
                 .graphicsLayer {
-                    translationX = position.value * tabW.toPx()
+                    translationX = position.value * tabW.toPx() + bubblePad.toPx()
                     val v = (abs(position.velocity) * 0.11f).coerceAtMost(0.45f)
                     scaleX = 1f + v + 0.16f * press
                     scaleY = 1f - v * 0.3f + 0.16f * press

@@ -10,7 +10,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
@@ -32,11 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -67,7 +67,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -201,6 +200,8 @@ fun TrackRow(
                             text = { Text(if (track.key in favorites) "Убрать из «Любимого»" else "В «Любимое»") },
                             onClick = { menu = false; engine.toggleLike(track) },
                         )
+                        DropdownMenuItem(text = { Text("Похожие треки") }, onClick = { menu = false; App.graph.pendingSimilar.value = track })
+                        DropdownMenuItem(text = { Text("Искать исполнителя") }, onClick = { menu = false; App.graph.pendingSearch.value = track.artists })
                         DropdownMenuItem(text = { Text("Радио по треку") }, onClick = { menu = false; engine.startRadio(track) })
                         DropdownMenuItem(text = { Text("Играть следующим") }, onClick = { menu = false; engine.playNext(track) })
                         DropdownMenuItem(text = { Text("В очередь") }, onClick = { menu = false; engine.enqueue(track) })
@@ -337,8 +338,15 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
                     Icon(if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Пауза/плей", tint = Color.White)
                 }
             }
-            IconButton(onClick = { engine.next() }, enabled = state.hasNext) {
-                Icon(Icons.Rounded.SkipNext, "Дальше", tint = Color.White.copy(alpha = if (state.hasNext) 1f else 0.4f))
+            // «Дальше» здесь не нужна — треки перелистываются свайпом по полоске; вместо неё — лайк
+            val liked by App.graph.favorites.keys.collectAsStateWithLifecycle()
+            val isLiked = track.key in liked
+            IconButton(onClick = { engine.toggleLike(track) }) {
+                Icon(
+                    if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    "Нравится",
+                    tint = if (isLiked) Color(0xFFFF4D8D) else Color.White,
+                )
             }
         }
         // Тонкая полоска прогресса по нижнему краю капсулы
@@ -418,8 +426,8 @@ fun shareTrack(context: android.content.Context, track: Track, url: String) {
 
 /**
  * Перелистывание треков свайпом: влево — следующий, вправо — предыдущий.
- * Содержимое едет за пальцем ([offset]); если сдвинули больше чем на четверть ширины —
- * уезжает за край, трек переключается, и новое въезжает с другой стороны.
+ * Содержимое едет за пальцем ([offset]); переключение — от небольшого сдвига
+ * (12% ширины) или от быстрого броска, даже если сдвинули совсем чуть-чуть.
  */
 fun Modifier.swipeTracks(
     offset: Animatable<Float, AnimationVector1D>,
@@ -434,35 +442,41 @@ fun Modifier.swipeTracks(
     val hasNext by rememberUpdatedState(canNext)
     val settle = spring<Float>(dampingRatio = 0.8f, stiffness = 420f)
     onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
-        .pointerInput(Unit) {
-            detectHorizontalDragGestures(
-                onDragEnd = {
-                    val v = offset.value
-                    scope.launch {
-                        when {
-                            v < -width * 0.25f && hasNext -> {
-                                offset.animateTo(-width, tween(140))
-                                next()
-                                offset.snapTo(width)
-                                offset.animateTo(0f, settle)
-                            }
-                            v > width * 0.25f -> {
-                                offset.animateTo(width, tween(140))
-                                prev()
-                                offset.snapTo(-width)
-                                offset.animateTo(0f, settle)
-                            }
-                            else -> offset.animateTo(0f, settle)
+        .draggable(
+            rememberDraggableState { dx ->
+                // Если следующего трека нет — тянется туго
+                val d = if (dx < 0 && !hasNext) dx * 0.25f else dx
+                scope.launch { offset.snapTo(offset.value + d) }
+            },
+            Orientation.Horizontal,
+            onDragStopped = { velocity ->
+                val v = offset.value
+                scope.launch {
+                    // Быстрый бросок переключает трек и без большого сдвига
+                    val flingNext = velocity < -FLING_VELOCITY && v < 0
+                    val flingPrev = velocity > FLING_VELOCITY && v > 0
+                    when {
+                        (v < -width * SWIPE_THRESHOLD || flingNext) && hasNext -> {
+                            offset.animateTo(-width, tween(140))
+                            next()
+                            offset.snapTo(width)
+                            offset.animateTo(0f, settle)
                         }
+                        v > width * SWIPE_THRESHOLD || flingPrev -> {
+                            offset.animateTo(width, tween(140))
+                            prev()
+                            offset.snapTo(-width)
+                            offset.animateTo(0f, settle)
+                        }
+                        else -> offset.animateTo(0f, settle)
                     }
-                },
-                onDragCancel = { scope.launch { offset.animateTo(0f, settle) } },
-                onHorizontalDrag = { change, dx ->
-                    change.consume()
-                    // Если следующего трека нет — тянется туго
-                    val d = if (dx < 0 && !hasNext) dx * 0.25f else dx
-                    scope.launch { offset.snapTo(offset.value + d) }
-                },
-            )
-        }
+                }
+            },
+        )
 }
+
+/** Доля ширины, на которую надо сдвинуть, чтобы трек переключился. */
+private const val SWIPE_THRESHOLD = 0.12f
+
+/** Скорость броска (px/с), при которой трек переключается почти без сдвига. */
+private const val FLING_VELOCITY = 1_200f

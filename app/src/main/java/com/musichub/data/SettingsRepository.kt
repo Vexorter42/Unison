@@ -34,6 +34,8 @@ data class AppSettings(
     val searchSoundcloud: Boolean = true,
     /** Если трек не играет в своём сервисе — искать замену в других. */
     val fallbackToOthers: Boolean = true,
+    /** Обычная очередь доиграла — продолжить похожими треками на последний. */
+    val autoContinueSimilar: Boolean = false,
     val mixYoutubeInWave: Boolean = false,
     val mixEvery: Int = 4,
     val quality: Quality = Quality.HIGH,
@@ -79,6 +81,7 @@ class SettingsRepository(private val context: Context) {
         val searchVk = booleanPreferencesKey("search_vk")
         val searchSc = booleanPreferencesKey("search_sc")
         val fallback = booleanPreferencesKey("fallback")
+        val autoContinue = booleanPreferencesKey("auto_continue")
         val mix = booleanPreferencesKey("mix_yt")
         val mixEvery = intPreferencesKey("mix_every")
         val quality = stringPreferencesKey("quality")
@@ -123,6 +126,7 @@ class SettingsRepository(private val context: Context) {
         searchVk = p[Keys.searchVk] ?: true,
         searchSoundcloud = p[Keys.searchSc] ?: true,
         fallbackToOthers = p[Keys.fallback] ?: true,
+        autoContinueSimilar = p[Keys.autoContinue] ?: false,
         mixYoutubeInWave = p[Keys.mix] ?: false,
         mixEvery = p[Keys.mixEvery] ?: 4,
         quality = p[Keys.quality]?.let { runCatching { Quality.valueOf(it) }.getOrNull() } ?: Quality.HIGH,
@@ -154,6 +158,7 @@ class SettingsRepository(private val context: Context) {
         p[Keys.searchVk] = s.searchVk
         p[Keys.searchSc] = s.searchSoundcloud
         p[Keys.fallback] = s.fallbackToOthers
+        p[Keys.autoContinue] = s.autoContinueSimilar
         p[Keys.mix] = s.mixYoutubeInWave
         p[Keys.mixEvery] = s.mixEvery
         p[Keys.quality] = s.quality.name
