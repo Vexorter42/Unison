@@ -4,15 +4,19 @@ package com.musichub.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -361,21 +365,52 @@ private fun LyricsView(track: Track, positionMs: Long, onSeek: (Long) -> Unit) {
         lyrics.synced != null -> {
             val lines = lyrics.synced
             val current = lines.indexOfLast { it.timeMs <= positionMs + 300 }
-            val listState = rememberLazyListState()
-            LaunchedEffect(current) { if (current >= 0) listState.animateScrollToItem((current - 3).coerceAtLeast(0)) }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(lines) { i, line ->
-                    Text(
-                        line.text.ifBlank { "♪" },
-                        // Крупно и жирно, неактивные строки приглушены — как полноэкранный текст в Liner
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (i == current) 1f else 0.32f),
-                        modifier = Modifier.fillMaxWidth().clickable { onSeek(line.timeMs) }.padding(vertical = 10.dp),
-                    )
+            val listState = remember(lines) { androidx.compose.foundation.lazy.LazyListState() }
+            LaunchedEffect(current, lines) {
+                if (current < 0) return@LaunchedEffect
+                val viewport = listState.layoutInfo.viewportSize.height
+                val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == current }
+                if (item == null) listState.scrollToItem(current, -(viewport * 0.28f).toInt())
+                else listState.animateScrollBy(
+                    lyricScrollDistance(item.offset, viewport).toFloat(),
+                    tween(650, easing = FastOutSlowInEasing),
+                )
+            }
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = maxHeight * 0.28f, bottom = maxHeight * 0.55f),
+                ) {
+                    itemsIndexed(lines, key = { i, line -> "${line.timeMs}-$i" }) { i, line ->
+                        val alpha by animateFloatAsState(
+                            if (i == current) 1f else 0.3f,
+                            tween(450, easing = FastOutSlowInEasing),
+                            label = "lyricAlpha",
+                        )
+                        val scale by animateFloatAsState(
+                            if (i == current) 1f else 0.96f,
+                            tween(550, easing = FastOutSlowInEasing),
+                            label = "lyricScale",
+                        )
+                        Text(
+                            line.text.ifBlank { "♪" },
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSeek(line.timeMs) }
+                                .padding(vertical = 10.dp)
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                                },
+                        )
+                    }
+                    item { Text("Тексты: LRCLIB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(vertical = 16.dp)) }
                 }
-                item { Text("Тексты: LRCLIB", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(vertical = 16.dp)) }
-                item { Spacer(Modifier.height(120.dp)) }
             }
         }
         else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -384,3 +419,6 @@ private fun LyricsView(track: Track, positionMs: Long, onSeek: (Long) -> Unit) {
         }
     }
 }
+
+internal fun lyricScrollDistance(itemOffset: Int, viewportHeight: Int): Int =
+    itemOffset - (viewportHeight * 0.28f).toInt()

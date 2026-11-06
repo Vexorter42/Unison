@@ -19,9 +19,8 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 
 /**
- * Светящаяся сфера из «лент» за надписью Моей волны: ленты медленно текут, а от басов сфера
- * раздувается и ярче светится. Без движения — неподвижная картинка того же вида.
- * Шейдер — тот же, что в Unison для Windows; до Android 13 вместо него мягкое свечение.
+ * Текучее свечение вокруг тёмного центра: два слоя шума медленно закручиваются, а басы мягко
+ * усиливают свет. Без движения — неподвижная картинка; до Android 13 — мягкий градиентный ореол.
  */
 private const val SPHERE_AGSL = """
 uniform float2 size;
@@ -42,30 +41,32 @@ float noise(float2 p) {
     float d = hash(i + float2(1.0, 1.0));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
+float fbm(float2 p) {
+    float v = 0.60 * noise(p);
+    p = p * 2.03 + float2(13.7, 9.2);
+    v += 0.28 * noise(p);
+    p = p * 2.01 + float2(7.1, 17.3);
+    return v + 0.12 * noise(p);
+}
 
 half4 main(float2 fc) {
     float2 uv = (fc - center) / min(size.x, size.y);
     float r = length(uv);
-    float a = atan(uv.y, uv.x);
-    float2 dir = float2(cos(a), sin(a));
-    float R = 0.30 * (1.0 + 0.18 * bass);
-    float lines = 0.0;
-    for (int i = 0; i < 7; i++) {
-        float fi = float(i);
-        // Шум по окружности — лента извивается; время сдвигает шум, и ленты «текут»
-        float n = noise(dir * 1.7 + float2(fi * 3.1, time * 0.22 + fi * 1.3));
-        float ri = R * (0.55 + 0.09 * fi) + (n - 0.5) * 0.24 * (1.0 + 1.4 * bass);
-        float d = abs(r - ri);
-        lines += 0.004 / (d + 0.004) * (0.7 - 0.06 * fi);
-    }
-    float core = exp(-pow(r / (R * 1.05), 2.0) * 1.7);
-    float halo = exp(-pow(r / (R * 2.3), 2.0) * 1.3);
-    float t = 0.5 + 0.5 * sin(a + time * 0.15);
-    float3 col = mix(colA, colB, t);
-    // Ленты гаснут к краю сферы — получается шар, а не кольца на весь экран
-    float fade = exp(-pow(r / (R * 1.6), 2.0) * 1.4);
-    float3 c = col * (core * 0.6 + halo * 0.35) * (0.75 + 0.55 * bass)
-        + mix(col, float3(1.0), 0.6) * lines * fade * 0.2 * (0.8 + 0.8 * bass);
+    float spin = time * 0.075 + 0.38 * exp(-r * 2.8);
+    float cs = cos(spin);
+    float sn = sin(spin);
+    float2 p = float2(uv.x * cs - uv.y * sn, uv.x * sn + uv.y * cs);
+
+    float cloud = fbm(p * 2.0 + float2(time * 0.045, -time * 0.035));
+    float detail = fbm(p * 3.8 + float2(cloud * 1.7, -cloud * 1.4) + float2(-time * 0.025, time * 0.04));
+    float radius = 0.30 * (1.0 + 0.12 * bass);
+    float edge = r + (cloud - 0.5) * 0.20 + (detail - 0.5) * 0.065;
+    float outer = 1.0 - smoothstep(radius * 0.85, radius * 1.8, edge);
+    float inner = smoothstep(radius * 0.30, radius * 0.90, edge);
+    float silk = smoothstep(0.18, 0.82, detail) * 0.72 + cloud * cloud * 0.28;
+    float light = outer * inner * (0.22 + silk * 0.95) * (0.82 + 0.48 * bass);
+    float3 col = mix(colA, colB, smoothstep(0.18, 0.82, cloud));
+    float3 c = col * light * 1.35;
     float al = clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0);
     return half4(half3(min(c, float3(al))), half(al));
 }
@@ -105,9 +106,18 @@ fun WaveSphere(colorA: Color, colorB: Color, motion: Boolean, bass: () -> Float,
     } else {
         Canvas(modifier) {
             val c = center() ?: Offset(size.width / 2, size.height / 2)
-            val r = size.minDimension * 0.30f * 2.3f
+            val r = size.minDimension * 0.54f
             drawCircle(
-                Brush.radialGradient(listOf(colorA.copy(alpha = 0.75f), colorB.copy(alpha = 0.3f), Color.Transparent), c, r),
+                Brush.radialGradient(
+                    0f to Color.Transparent,
+                    0.28f to Color.Transparent,
+                    0.50f to colorB.copy(alpha = 0.22f),
+                    0.65f to colorA.copy(alpha = 0.55f + level * 0.15f),
+                    0.84f to colorB.copy(alpha = 0.18f),
+                    1f to Color.Transparent,
+                    center = c,
+                    radius = r,
+                ),
                 r,
                 c,
             )
