@@ -11,3 +11,4 @@ keystore.properties
 *.keystore
 *.apk
 dist/
+.worktrees/
