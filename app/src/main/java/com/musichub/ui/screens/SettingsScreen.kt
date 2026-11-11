@@ -123,7 +123,7 @@ fun SettingsScreen(nav: NavController) {
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = LocalBottomInset.current)) {
         Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
 
-        Section("Аккаунты", initiallyExpanded = true) {
+        Section("Аккаунты") {
             AccountRow(
                 title = "Яндекс Музыка",
                 account = s.yandexLogin.takeIf { s.yandexLoggedIn },
@@ -187,7 +187,7 @@ fun SettingsScreen(nav: NavController) {
             }
         }
 
-        Section("Поиск") {
+        Section("Поиск", initiallyExpanded = true) {
             SwitchRow("Искать на YouTube", null, s.searchYoutube) { v -> update { it.copy(searchYoutube = v) } }
             SwitchRow(
                 "Искать на SoundCloud",
@@ -197,7 +197,7 @@ fun SettingsScreen(nav: NavController) {
             SwitchRow("Искать во ВКонтакте", "Нужен вход во ВК", s.searchVk) { v -> update { it.copy(searchVk = v) } }
         }
 
-        Section("Воспроизведение") {
+        Section("Воспроизведение", initiallyExpanded = true) {
             SwitchRow(
                 "Замена из других сервисов",
                 "Если трек не играет в своём сервисе (нет подписки, удалён, регион) — найти его в другом",

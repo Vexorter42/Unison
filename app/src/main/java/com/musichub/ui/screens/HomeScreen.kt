@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.musichub.App
+import com.musichub.data.WaveSource
 import com.musichub.ui.GlassChip
 import com.musichub.ui.PrimaryPill
 import com.musichub.ui.WaveSphere
@@ -102,6 +103,9 @@ private val diversities = listOf(
     Diversity("popular", "Популярное", Icons.Rounded.Whatshot),
 )
 
+private data class WaveLanguage(val value: String, val label: String)
+private val waveLanguages = listOf(WaveLanguage("any", "Любой"), WaveLanguage("russian", "Русский"), WaveLanguage("not-russian", "Иностранный"))
+
 @Composable
 fun HomeScreen(nav: NavController) {
     val graph = App.graph
@@ -109,11 +113,28 @@ fun HomeScreen(nav: NavController) {
     val settings by graph.settings.flow.collectAsStateWithLifecycle()
     val state by engine.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var filtersExpanded by remember { mutableStateOf(false) }
 
     fun applyWaveSettings(mood: String, diversity: String) = scope.launch {
         graph.settings.update { it.copy(waveMood = mood, waveDiversity = diversity) }
-        runCatching { graph.yandex.setWaveSettings(mood, diversity) }
-        if (engine.state.value.radioTitle == "Моя волна" || engine.state.value.waveMode) engine.startWave()
+        if (engine.state.value.radioTitle == "Моя волна" && engine.state.value.waveSource == WaveSource.YANDEX) engine.startWave()
+    }
+
+    fun applyWaveLanguage(language: String) = scope.launch {
+        if (settings.waveLanguage == language) return@launch
+        graph.settings.update { it.copy(waveLanguage = language) }
+        if (engine.state.value.radioTitle == "Моя волна" && engine.state.value.waveSource == WaveSource.YANDEX) engine.startWave()
+    }
+
+    fun selectWaveSource(source: WaveSource) = scope.launch {
+        if (source == settings.waveSource) return@launch
+        when (source) {
+            WaveSource.YANDEX -> if (!settings.yandexLoggedIn) { nav.navigate("login/ya"); return@launch }
+            WaveSource.VK -> if (!settings.vkLoggedIn) { nav.navigate("login/vk"); return@launch }
+            WaveSource.YOUTUBE -> Unit
+        }
+        graph.settings.update { it.copy(waveSource = source) }
+        engine.startWave()
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(bottom = LocalBottomInset.current)) {
@@ -135,7 +156,18 @@ fun HomeScreen(nav: NavController) {
         val moodIndex = moods.indexOfFirst { it.value == settings.waveMood }.coerceAtLeast(0)
         val mood = moods[moodIndex]
         val diversity = diversities.firstOrNull { it.value == settings.waveDiversity } ?: diversities[0]
-        val waveOn = state.waveMode && state.isPlaying
+        val waveSelected = state.waveMode && state.radioTitle == "Моя волна" && state.waveSource == settings.waveSource
+        val waveOn = waveSelected && state.isPlaying
+        val sourceReady = when (settings.waveSource) {
+            WaveSource.YANDEX -> settings.yandexLoggedIn
+            WaveSource.YOUTUBE -> true
+            WaveSource.VK -> settings.vkLoggedIn
+        }
+        val sourceLogin = when (settings.waveSource) {
+            WaveSource.YANDEX -> { { nav.navigate("login/ya") } }
+            WaveSource.YOUTUBE -> { {} }
+            WaveSource.VK -> { { nav.navigate("login/vk") } }
+        }
         // Басы меряем, только пока главная на экране, сфера живая и играет именно волна
         DisposableEffect(settings.sphereMotion, waveOn) {
             engine.bassMeter.enabled = settings.sphereMotion && waveOn
@@ -143,24 +175,52 @@ fun HomeScreen(nav: NavController) {
         }
         WaveHero(
             mood = mood,
-            subtitle = "${mood.label} · ${diversity.label}",
+            subtitle = if (settings.waveSource == WaveSource.YANDEX) "${WaveSource.YANDEX.label} · ${mood.label} · ${diversity.label}" else settings.waveSource.label,
+            loginLabel = if (settings.waveSource == WaveSource.VK) "ВКонтакте" else "Яндекс",
             playing = waveOn,
-            loggedIn = settings.yandexLoggedIn,
+            loggedIn = sourceReady,
             sphereMotion = settings.sphereMotion,
             bass = { if (waveOn) engine.bassMeter.level() else 0f },
-            onPlay = { if (state.waveMode) engine.togglePlay() else engine.startWave() },
-            onLogin = { nav.navigate("login/ya") },
+            onPlay = { if (waveSelected) engine.togglePlay() else engine.startWave() },
+            onLogin = sourceLogin,
             modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
         ) {
-            MoodCarousel(moodIndex) { applyWaveSettings(moods[it].value, settings.waveDiversity) }
             Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                WaveSource.entries.forEach { source ->
+                    GlassChip(source.label, selected = source == settings.waveSource, onClick = { selectWaveSource(source) })
+                }
+                GlassChip(
+                    if (filtersExpanded) "Скрыть настройки" else "Настроить",
+                    selected = filtersExpanded,
+                    onClick = { filtersExpanded = !filtersExpanded },
+                    icon = Icons.Rounded.Tune,
+                )
+            }
+            if (settings.waveSource == WaveSource.YANDEX && filtersExpanded) {
+                Text("Настроение", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, modifier = Modifier.padding(start = 18.dp, top = 4.dp))
+                MoodCarousel(moodIndex) { applyWaveSettings(moods[it].value, settings.waveDiversity) }
+                Text("Характер подбора", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, modifier = Modifier.padding(start = 18.dp, top = 2.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                 diversities.forEach { d ->
                     GlassChip(d.label, selected = d.value == settings.waveDiversity, icon = d.icon, onClick = {
                         applyWaveSettings(settings.waveMood, d.value)
                     })
+                }
+                }
+                Text("Язык треков", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, modifier = Modifier.padding(start = 18.dp, top = 2.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    waveLanguages.forEach { language ->
+                        GlassChip(language.label, selected = language.value == settings.waveLanguage, onClick = { applyWaveLanguage(language.value) })
+                    }
                 }
             }
         }
@@ -182,6 +242,7 @@ private fun RoundGlassButton(icon: ImageVector, description: String, active: Boo
 private fun WaveHero(
     mood: Mood,
     subtitle: String,
+    loginLabel: String,
     playing: Boolean,
     loggedIn: Boolean,
     sphereMotion: Boolean,
@@ -243,12 +304,12 @@ private fun WaveHero(
                     }
                 } else {
                     Text(
-                        "Войдите в Яндекс, чтобы слушать Мою волну",
+                        "Войдите в $loginLabel, чтобы слушать рекомендации",
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
-                    PrimaryPill("Войти в Яндекс", null, onLogin)
+                    PrimaryPill("Войти в $loginLabel", null, onLogin)
                 }
             }
             controls()

@@ -31,6 +31,8 @@ data class BackupSettings(
     val liquidGlass: Boolean,
     val palette: Int,
     val coverTheme: Boolean,
+    val waveSource: WaveSource = WaveSource.YANDEX,
+    val waveLanguage: String = "any",
 )
 
 @Serializable
@@ -63,7 +65,7 @@ class Backup(private val context: Context, private val graph: AppGraph) {
             settings = BackupSettings(
                 s.searchYoutube, s.searchVk, s.fallbackToOthers, s.mixYoutubeInWave, s.mixEvery, s.quality, s.fadeSeconds,
                 s.autoCacheMb, s.waveMood, s.waveDiversity, s.ytProxyEnabled, s.ytProxyType, s.ytProxyHost, s.ytProxyPort,
-                s.liquidGlass, s.palette, s.coverTheme,
+                s.liquidGlass, s.palette, s.coverTheme, s.waveSource, s.waveLanguage,
             ),
             playlists = playlists,
             favorites = db.favorites().all(),
@@ -94,6 +96,7 @@ class Backup(private val context: Context, private val graph: AppGraph) {
                 autoCacheMb = b.autoCacheMb, waveMood = b.waveMood, waveDiversity = b.waveDiversity,
                 ytProxyEnabled = b.ytProxyEnabled, ytProxyType = b.ytProxyType, ytProxyHost = b.ytProxyHost, ytProxyPort = b.ytProxyPort,
                 liquidGlass = b.liquidGlass, palette = b.palette, coverTheme = b.coverTheme,
+                waveSource = b.waveSource, waveLanguage = b.waveLanguage,
             )
         }
         RestoreResult(file.playlists.size, file.favorites.size, file.stats.size)

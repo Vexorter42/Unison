@@ -43,6 +43,8 @@ data class AppSettings(
     val autoCacheMb: Int = 4096,
     val waveMood: String = "all",
     val waveDiversity: String = "default",
+    val waveSource: WaveSource = WaveSource.YANDEX,
+    val waveLanguage: String = "any",
     /** YouTube через прокси (SOCKS5 / HTTP). */
     val ytProxyEnabled: Boolean = false,
     val ytProxyType: String = "SOCKS",
@@ -67,6 +69,11 @@ data class AppSettings(
     val ytLoggedIn: Boolean get() = ytCookie?.contains("SAPISID") == true
 }
 
+@kotlinx.serialization.Serializable
+enum class WaveSource(val label: String) {
+    YANDEX("Яндекс"), YOUTUBE("YouTube"), VK("ВК"),
+}
+
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
 class SettingsRepository(private val context: Context) {
@@ -89,6 +96,8 @@ class SettingsRepository(private val context: Context) {
         val cacheMb = intPreferencesKey("cache_mb")
         val mood = stringPreferencesKey("wave_mood")
         val diversity = stringPreferencesKey("wave_diversity")
+        val waveSource = stringPreferencesKey("wave_source")
+        val waveLanguage = stringPreferencesKey("wave_language")
         val proxyOn = booleanPreferencesKey("yt_proxy_on")
         val proxyType = stringPreferencesKey("yt_proxy_type")
         val proxyHost = stringPreferencesKey("yt_proxy_host")
@@ -134,6 +143,8 @@ class SettingsRepository(private val context: Context) {
         autoCacheMb = p[Keys.cacheMb] ?: 4096,
         waveMood = p[Keys.mood] ?: "all",
         waveDiversity = p[Keys.diversity] ?: "default",
+        waveSource = p[Keys.waveSource]?.let { runCatching { WaveSource.valueOf(it) }.getOrNull() } ?: WaveSource.YANDEX,
+        waveLanguage = p[Keys.waveLanguage] ?: "any",
         ytProxyEnabled = p[Keys.proxyOn] ?: false,
         ytProxyType = p[Keys.proxyType] ?: "SOCKS",
         ytProxyHost = p[Keys.proxyHost] ?: "127.0.0.1",
@@ -166,6 +177,8 @@ class SettingsRepository(private val context: Context) {
         p[Keys.cacheMb] = s.autoCacheMb
         p[Keys.mood] = s.waveMood
         p[Keys.diversity] = s.waveDiversity
+        p[Keys.waveSource] = s.waveSource.name
+        p[Keys.waveLanguage] = s.waveLanguage
         p[Keys.proxyOn] = s.ytProxyEnabled
         p[Keys.proxyType] = s.ytProxyType
         p[Keys.proxyHost] = s.ytProxyHost

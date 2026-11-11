@@ -47,6 +47,12 @@ data class YaPlaylist(
 
 data class WaveBatch(val batchId: String?, val tracks: List<Track>)
 
+internal fun waveSettingsJson(mood: String, diversity: String, language: String) = buildJsonObject {
+    put("moodEnergy", mood)
+    put("diversity", diversity)
+    put("language", language)
+}
+
 /**
  * Неофициальное API Яндекс Музыки (то же, что использует их Android-приложение).
  * Блокирующие методы помечены суффиксом Blocking, остальные — suspend и работают на IO.
@@ -292,13 +298,9 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
         }
     }
 
-    /** mood: all/active/fun/calm/sad, diversity: default/favorite/discover/popular */
-    suspend fun setWaveSettings(mood: String, diversity: String) = io {
-        postJson("/rotor/station/$WAVE/settings3", buildJsonObject {
-            put("moodEnergy", mood)
-            put("diversity", diversity)
-            put("language", "any")
-        })
+    /** mood: all/active/fun/calm/sad, diversity: default/favorite/discover/popular, language: any/russian/not-russian */
+    suspend fun setWaveSettings(mood: String, diversity: String, language: String = settings.current.waveLanguage) = io {
+        postJson("/rotor/station/$WAVE/settings3", waveSettingsJson(mood, diversity, language))
         Unit
     }
 

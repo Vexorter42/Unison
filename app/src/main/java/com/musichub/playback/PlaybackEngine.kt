@@ -35,6 +35,7 @@ import com.musichub.data.db.DownloadedTrack
 import com.musichub.data.db.PlayEvent
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.data.WaveSource
 import com.musichub.search.TrackMatcher
 import com.musichub.util.hiResCover
 import com.musichub.yandex.YandexApi
@@ -78,6 +79,7 @@ data class PlayerState(
     val durationMs: Long = 0,
     val hasNext: Boolean = false,
     val waveMode: Boolean = false,
+    val waveSource: WaveSource? = null,
     /** «Моя волна», «Радио: …» или null, если играет обычная очередь. */
     val radioTitle: String? = null,
     val viaFallback: Boolean = false,
@@ -191,6 +193,9 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     // ---------- Моя волна ----------
 
     private var waveMode = false
+    private val radioSession = RadioSession()
+    private var radioProvider: WaveSource? = null
+    private var waveSource: WaveSource? = null
     /** Станция Яндекса текущего радио (null — радио из похожих на YouTube) и его название. */
     private var radioStation: String? = null
     private var radioTitle: String? = null
@@ -304,7 +309,10 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     fun playTracks(tracks: List<Track>, startIndex: Int = 0, shuffle: Boolean = false) {
         if (tracks.isEmpty()) return
+        radioSession.next()
         waveMode = false
+        radioProvider = null
+        waveSource = null
         radioStation = null
         radioTitle = null
         player.shuffleModeEnabled = shuffle
@@ -366,13 +374,21 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     // ---------- Моя волна и радио ----------
 
-    fun startWave() = startYandexStation(YandexApi.WAVE, "Моя волна", seed = null)
+    fun startWave() {
+        val token = radioSession.next()
+        when (graph.settings.current.waveSource) {
+            WaveSource.YANDEX -> startYandexStation(YandexApi.WAVE, "Моя волна", seed = null, token = token, personalWave = true)
+            WaveSource.YOUTUBE -> scope.launch { startYoutubeWave(token) }
+            WaveSource.VK -> startVkWave(token)
+        }
+    }
 
     /**
      * Бесконечное радио «похожее на этот трек» из любого сервиса. Для Яндекса — его станция по треку
      * (учится на пропусках), для остального трек сначала ищется в Яндексе, иначе — похожие с YouTube.
      */
     fun startRadio(track: Track) {
+        val token = radioSession.next()
         scope.launch {
             val title = "Радио: ${track.title}"
             val yandexLoggedIn = graph.settings.current.yandexLoggedIn
@@ -382,52 +398,93 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
                 else -> track.alternates.firstOrNull { it.source == Source.YANDEX }?.sourceId?.substringBefore(':')
                     ?: findOnYandex(track)?.yandexId
             }
-            if (yandexId != null && yandexLoggedIn) startYandexStation("track:$yandexId", title, seed = track)
-            else startYoutubeRadio(track, title)
+            if (!radioSession.isCurrent(token)) return@launch
+            if (yandexId != null && yandexLoggedIn) startYandexStation("track:$yandexId", title, seed = track, token = token)
+            else startYoutubeRadio(track, title, token)
         }
     }
 
-    private fun startYandexStation(station: String, title: String, seed: Track?) {
+    private fun startYandexStation(station: String, title: String, seed: Track?, token: Long, personalWave: Boolean = false) {
         scope.launch {
             if (!graph.settings.current.yandexLoggedIn) {
                 _messages.emit("Войдите в Яндекс в настройках, чтобы включить ${if (seed == null) "Мою волну" else "радио"}")
                 return@launch
             }
             try {
+                if (personalWave) {
+                    val s = graph.settings.current
+                    graph.yandex.setWaveSettings(s.waveMood, s.waveDiversity, s.waveLanguage)
+                }
+                if (!radioSession.isCurrent(token)) return@launch
                 val batch = graph.yandex.stationTracks(station, seed?.yandexId)
+                if (!radioSession.isCurrent(token)) return@launch
                 if (batch.tracks.isEmpty()) {
                     _messages.emit("Станция вернула пустой список")
                     return@launch
                 }
-                beginRadio(station, title, batch.batchId)
+                beginRadio(WaveSource.YANDEX, station, title, batch.batchId, personalWave, token)
                 launch { graph.yandex.waveFeedback("radioStarted", batch.batchId, station = station) }
                 val tracks = listOfNotNull(seed) + batch.tracks.filter { it.key != seed?.key }
                 setRadioQueue(tracks)
-                if (station == YandexApi.WAVE) scheduleMix(batch.tracks)
+                if (personalWave && station == YandexApi.WAVE) scheduleMix(batch.tracks, token)
             } catch (e: Exception) {
                 _messages.emit("Не удалось запустить радио: ${e.message}")
             }
         }
     }
 
-    private suspend fun startYoutubeRadio(seed: Track, title: String) {
+    private suspend fun startYoutubeRadio(seed: Track, title: String, token: Long, personalWave: Boolean = false) {
         try {
             val videoId = if (seed.source == Source.YOUTUBE) seed.sourceId
             else seed.alternates.firstOrNull { it.source == Source.YOUTUBE }?.sourceId ?: graph.youtube.findMatch(seed)?.sourceId
             val related = videoId?.let { graph.youtube.related(it) }.orEmpty()
+            if (!radioSession.isCurrent(token)) return
             if (related.isEmpty()) {
                 _messages.emit("Не нашёл похожих треков для радио")
                 return
             }
-            beginRadio(station = null, title = title, batchId = null)
+            beginRadio(WaveSource.YOUTUBE, station = null, title = title, batchId = null, personalWave = personalWave, token = token)
             setRadioQueue(listOf(seed) + related.filter { it.key != seed.key }.distinctBy { it.key })
         } catch (e: Exception) {
             _messages.emit("Не удалось запустить радио: ${e.message}")
         }
     }
 
-    private fun beginRadio(station: String?, title: String, batchId: String?) {
+    private suspend fun startYoutubeWave(token: Long) {
+        val seed = state.value.track ?: graph.db.stats().recent(1).first().firstOrNull()
+            ?.let { runCatching { Track.fromJson(it.trackJson) }.getOrNull() }
+        if (seed == null) {
+            if (radioSession.isCurrent(token)) _messages.emit("Чтобы запустить волну YouTube, сначала включите любой трек")
+            return
+        }
+        startYoutubeRadio(seed, "Моя волна", token, personalWave = true)
+    }
+
+    private fun startVkWave(token: Long) {
+        if (!graph.settings.current.vkLoggedIn) {
+            _messages.tryEmit("Войдите во ВКонтакте, чтобы включить его рекомендации")
+            return
+        }
+        scope.launch {
+            try {
+                val fresh = graph.vk.recommendations()
+                if (!radioSession.isCurrent(token)) return@launch
+                if (fresh.isEmpty()) { _messages.emit("ВК не вернул рекомендации"); return@launch }
+                val tracks = uniqueRadioTracks(fresh, emptyList(), recentKeys)
+                if (tracks.isEmpty()) { _messages.emit("ВК пока не дал новых рекомендаций"); return@launch }
+                beginRadio(WaveSource.VK, null, "Моя волна", null, personalWave = true, token = token)
+                setRadioQueue(tracks)
+            } catch (e: Exception) {
+                if (radioSession.isCurrent(token)) _messages.emit("Волна ВК: ${e.message}")
+            }
+        }
+    }
+
+    private fun beginRadio(provider: WaveSource, station: String?, title: String, batchId: String?, personalWave: Boolean, token: Long) {
+        if (!radioSession.isCurrent(token)) return
         waveMode = true
+        radioProvider = provider
+        waveSource = provider.takeIf { personalWave }
         radioStation = station
         radioTitle = title
         waveBatchId = batchId
@@ -454,26 +511,31 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     private fun maybeRefillWave() {
         if (!waveMode || waveLoading || player.mediaItemCount - player.currentMediaItemIndex > 3) return
         waveLoading = true
+        val token = radioSession.current()
         scope.launch {
             try {
-                val station = radioStation
-                val fresh = if (station != null) {
-                    val lastYandex = queueCache.lastOrNull { it.source == Source.YANDEX }
-                    val batch = graph.yandex.stationTracks(station, lastYandex?.yandexId)
-                    waveBatchId = batch.batchId ?: waveBatchId
-                    batch.tracks
-                } else {
-                    // Радио на YouTube: продолжаем от последнего трека очереди
-                    val last = queueCache.lastOrNull { it.source == Source.YOUTUBE } ?: return@launch
-                    graph.youtube.related(last.sourceId).take(10)
+                val fresh = when (radioProvider) {
+                    WaveSource.YANDEX -> {
+                        val station = radioStation ?: return@launch
+                        val lastYandex = queueCache.lastOrNull { it.source == Source.YANDEX }
+                        val batch = graph.yandex.stationTracks(station, lastYandex?.yandexId)
+                        waveBatchId = batch.batchId ?: waveBatchId
+                        batch.tracks
+                    }
+                    WaveSource.YOUTUBE -> {
+                        val last = queueCache.lastOrNull { it.source == Source.YOUTUBE } ?: return@launch
+                        graph.youtube.related(last.sourceId).take(10)
+                    }
+                    WaveSource.VK -> graph.vk.recommendations()
+                    null -> return@launch
                 }
-                if (!waveMode) return@launch
-                val skip = queueKeys() + recentKeys
-                val add = fresh.filter { it.key !in skip }.distinctBy { it.key }
+                if (!waveMode || !radioSession.isCurrent(token)) return@launch
+                val add = uniqueRadioTracks(fresh, queueKeys(), recentKeys)
+                if (add.isEmpty()) { _messages.emit("Радио: сервис не дал новых треков"); return@launch }
                 player.addMediaItems(add.map(::toMediaItem))
-                if (station == YandexApi.WAVE) scheduleMix(add)
+                if (waveSource == WaveSource.YANDEX && radioStation == YandexApi.WAVE) scheduleMix(add, token)
             } catch (e: Exception) {
-                _messages.emit("Радио: ${e.message}")
+                if (radioSession.isCurrent(token)) _messages.emit("Радио: ${e.message}")
             } finally {
                 waveLoading = false
             }
@@ -487,7 +549,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     }
 
     /** Подмешивание YouTube в волну: после каждого N-го трека — похожий трек с YouTube. */
-    private fun scheduleMix(batch: List<Track>) {
+    private fun scheduleMix(batch: List<Track>, token: Long) {
         val s = graph.settings.current
         if (!s.mixYoutubeInWave) return
         val seeds = batch.filter { ++waveCounter % s.mixEvery.coerceAtLeast(2) == 0 }
@@ -495,7 +557,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         scope.launch {
             for (seed in seeds) {
                 val extra = runCatching { youtubeNeighbour(seed) }.getOrNull() ?: continue
-                if (!waveMode) return@launch
+                if (!waveMode || !radioSession.isCurrent(token)) return@launch
                 val idx = queueCache.indexOfFirst { it.key == seed.key }
                 if (idx < player.currentMediaItemIndex) continue
                 player.addMediaItem(idx + 1, toMediaItem(extra.copy(mixed = true)))
@@ -782,6 +844,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
             durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: (t?.durationMs ?: 0),
             hasNext = player.hasNextMediaItem(),
             waveMode = waveMode,
+            waveSource = waveSource,
             radioTitle = radioTitle,
             viaFallback = t != null && t.key in resolver.fallbackKeys.value,
             shuffle = player.shuffleModeEnabled,
