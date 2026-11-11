@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -371,6 +374,38 @@ fun SettingsScreen(nav: NavController) {
                 OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
                     Text("Восстановить")
                 }
+            }
+        }
+
+        Section("Поддержать", initiallyExpanded = true) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    .border(BorderStroke(1.dp, Color(0x66FF5A63)), RoundedCornerShape(20.dp))
+                    .clickable {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.donationalerts.com/r/nick556655".toUri()))
+                        }.onFailure {
+                            Toast.makeText(context, "Не удалось открыть DonationAlerts", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape).background(Color(0x22FF5A63)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Favorite, contentDescription = null, tint = Color(0xFFFF5A63))
+                }
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text("Поддержать Unison", fontWeight = FontWeight.SemiBold)
+                    Text("Донат через DonationAlerts", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = "Открыть DonationAlerts", tint = Color(0xFFFF5A63))
             }
         }
 

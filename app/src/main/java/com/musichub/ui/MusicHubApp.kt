@@ -134,7 +134,7 @@ fun MusicHubApp() {
                         "search?q={q}",
                         arguments = listOf(navArgument("q") { defaultValue = "" }),
                     ) { e ->
-                        SearchScreen(initialQuery = e.arguments?.getString("q").orEmpty(), onBack = { nav.popBackStack() })
+                        SearchScreen(initialQuery = e.arguments?.getString("q").orEmpty(), onBack = { nav.popBackStack() }, nav = nav)
                     }
                     composable("similar") { SimilarScreen(onBack = { nav.popBackStack() }) }
                     composable("library") { LibraryScreen(nav) }

@@ -4,6 +4,9 @@ import com.musichub.data.Quality
 import com.musichub.data.SettingsRepository
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.search.ArtistSearchResult
+import com.musichub.search.CollectionKind
+import com.musichub.search.CollectionSearchResult
 import com.musichub.util.arr
 import com.musichub.util.bool
 import com.musichub.util.long
@@ -172,6 +175,47 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
         get("/search", mapOf("text" to query, "type" to "track", "page" to "0", "nocorrect" to "false"))
             .obj()?.get("tracks").obj()?.get("results").arr()
             .mapNotNull { it.obj()?.let(::parseTrack) }
+
+    suspend fun searchArtists(query: String): List<ArtistSearchResult> = io {
+        searchItems(query, "artist", "artists").mapNotNull { el ->
+            val o = el.obj() ?: return@mapNotNull null
+            val id = o.str("id") ?: return@mapNotNull null
+            val name = o.str("name") ?: return@mapNotNull null
+            ArtistSearchResult(Source.YANDEX, id, name, "Исполнитель · Яндекс", searchCover(o))
+        }
+    }
+
+    suspend fun searchAlbums(query: String): List<CollectionSearchResult> = io {
+        searchItems(query, "album", "albums").mapNotNull { el ->
+            val o = el.obj() ?: return@mapNotNull null
+            val id = o.str("id") ?: return@mapNotNull null
+            val title = o.str("title") ?: return@mapNotNull null
+            val artists = o["artists"].arr().mapNotNull { it.obj()?.str("name") }.joinToString(", ")
+            CollectionSearchResult(
+                Source.YANDEX, CollectionKind.ALBUM, id, title,
+                listOfNotNull(artists.takeIf { it.isNotBlank() }, o.long("year")?.toString(), "Яндекс Музыка").joinToString(" · "),
+                searchCover(o), o.long("trackCount"),
+            )
+        }
+    }
+
+    suspend fun searchPlaylists(query: String): List<CollectionSearchResult> = io {
+        searchItems(query, "playlist", "playlists").mapNotNull { el ->
+            val playlist = parsePlaylist(el.obj()) ?: return@mapNotNull null
+            CollectionSearchResult(
+                Source.YANDEX, CollectionKind.PLAYLIST, "${playlist.ownerUid}:${playlist.kind}", playlist.title,
+                "Яндекс Музыка", playlist.coverUrl, playlist.trackCount.toLong(),
+            )
+        }
+    }
+
+    private fun searchItems(query: String, type: String, field: String) =
+        get("/search", mapOf("text" to query, "type" to type, "page" to "0", "nocorrect" to "false"))
+            .obj()?.get(field).obj()?.get("results").arr()
+
+    private fun searchCover(o: JsonObject): String? =
+        (o.str("coverUri") ?: o["cover"].obj()?.str("uri") ?: o.str("ogImage"))
+            ?.let { if (it.startsWith("http")) it else "https://" + it.replace("%%", "400x400") }
 
     private fun likedRefs(): List<String> {
         val items = get("/users/$uid/likes/tracks").obj()?.get("library").obj()?.get("tracks").arr()

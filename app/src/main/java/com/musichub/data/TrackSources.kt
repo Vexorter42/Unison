@@ -32,6 +32,7 @@ class TrackSources(private val graph: AppGraph) {
         "ytliked" -> graph.ytMusic.liked()
         "ytuploads" -> graph.ytMusic.uploads()
         "ytpl" -> graph.ytMusic.playlistTracks(arg)
+        "ytsearch" -> graph.youtube.playlist(arg).second
         "ytvideo" -> listOfNotNull(graph.youtube.track(arg))
         "sctrack" -> listOfNotNull(graph.soundcloud.track(arg))
         "scpl" -> graph.soundcloud.playlist(arg)

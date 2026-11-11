@@ -4,6 +4,9 @@ import com.musichub.data.Quality
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
 import com.musichub.search.TrackMatcher
+import com.musichub.search.ArtistSearchResult
+import com.musichub.search.CollectionKind
+import com.musichub.search.CollectionSearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
@@ -12,6 +15,8 @@ import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
@@ -30,9 +35,43 @@ class YouTubeApi {
     suspend fun search(query: String): List<Track> = io { searchBlocking(query) }
 
     fun searchBlocking(query: String): List<Track> {
-        val extractor = service.getSearchExtractor(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS), "")
+        return searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_SONGS).mapNotNull { it.toTrack() }
+    }
+
+    suspend fun searchArtists(query: String): List<ArtistSearchResult> = io {
+        searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS).mapNotNull { item ->
+            val artist = item as? ChannelInfoItem ?: return@mapNotNull null
+            ArtistSearchResult(
+                Source.YOUTUBE, artist.url, artist.name,
+                artist.subscriberCount.takeIf { it > 0 }?.let { "${it} подписчиков · YouTube" } ?: "YouTube",
+                bestThumb(artist.thumbnails), artist.url,
+            )
+        }
+    }
+
+    suspend fun searchAlbums(query: String): List<CollectionSearchResult> = io {
+        searchCollections(query, YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS, CollectionKind.ALBUM)
+    }
+
+    suspend fun searchPlaylists(query: String): List<CollectionSearchResult> = io {
+        searchCollections(query, YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS, CollectionKind.PLAYLIST)
+    }
+
+    private fun searchCollections(query: String, filter: String, kind: CollectionKind): List<CollectionSearchResult> =
+        searchItems(query, filter).mapNotNull { item ->
+            val playlist = item as? PlaylistInfoItem ?: return@mapNotNull null
+            CollectionSearchResult(
+                Source.YOUTUBE, kind, playlist.url, playlist.name,
+                listOfNotNull(playlist.uploaderName?.takeIf { it.isNotBlank() }, playlist.streamCount.takeIf { it > 0 }?.let { "$it треков" }, "YouTube")
+                    .joinToString(" · "),
+                bestThumb(playlist.thumbnails), playlist.streamCount.takeIf { it > 0 }, playlist.url,
+            )
+        }
+
+    private fun searchItems(query: String, filter: String): List<InfoItem> {
+        val extractor = service.getSearchExtractor(query, listOf(filter), "")
         extractor.fetchPage()
-        return extractor.initialPage.items.mapNotNull { it.toTrack() }
+        return extractor.initialPage.items
     }
 
     suspend fun findMatch(target: Track): Track? = io { findMatchBlocking(target) }
