@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,7 +22,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +51,7 @@ import com.musichub.data.db.Totals
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
 import com.musichub.ui.Cover
+import com.musichub.ui.TrackRow
 import com.musichub.ui.GlassChip
 import com.musichub.ui.liquid.GlassPanel
 import com.musichub.ui.liquid.LocalBottomInset
@@ -56,6 +61,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import java.util.Date
+import java.text.DateFormat
 
 private enum class Period(val label: String) {
     WEEK("Неделя"), MONTH("Месяц"), YEAR("Год"), ALL("Всё время");
@@ -84,6 +91,12 @@ private data class StatsData(
 @Composable
 fun StatsScreen() {
     var period by rememberSaveable { mutableStateOf(Period.MONTH) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
+    BackHandler(showHistory) { showHistory = false }
+    if (showHistory) {
+        HistoryScreen(onBack = { showHistory = false })
+        return
+    }
     val dao = App.graph.db.stats()
     val data by produceState<StatsData?>(null, period) {
         value = null
@@ -99,7 +112,7 @@ fun StatsScreen() {
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
-        RecentlyPlayed()
+        RecentlyPlayed(onOpenHistory = { showHistory = true })
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Period.entries.forEach { p -> GlassChip(p.label, selected = p == period, onClick = { period = p }) }
         }
@@ -205,14 +218,17 @@ private fun Header(text: String) {
 
 /** «Недавно слушали» — лента обложек; тап включает трек, дальше играют остальные из ленты. */
 @Composable
-private fun RecentlyPlayed() {
+private fun RecentlyPlayed(onOpenHistory: () -> Unit) {
     val graph = App.graph
     val recentFlow = remember {
         graph.db.stats().recent(20).map { list -> list.mapNotNull { runCatching { Track.fromJson(it.trackJson) }.getOrNull() } }
     }
     val recent by recentFlow.collectAsState(emptyList())
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Header("Недавно слушали")
+        TextButton(onClick = onOpenHistory) { Text("Вся история") }
+    }
     if (recent.isEmpty()) return
-    Header("Недавно слушали")
     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         itemsIndexed(recent, key = { _, t -> t.key }) { i, t ->
             Column(Modifier.width(112.dp).liquidClickable(pressedScale = 0.95f) { graph.engine.playTracks(recent, i) }) {
@@ -223,4 +239,39 @@ private fun RecentlyPlayed() {
         }
     }
     Spacer(Modifier.height(12.dp))
+}
+
+/** Прослушивания по дате, включая повторы; количество строк увеличивается без верхнего предела. */
+@Composable
+private fun HistoryScreen(onBack: () -> Unit) {
+    val graph = App.graph
+    var limit by rememberSaveable { mutableStateOf(100) }
+    val countFlow = remember { graph.db.stats().historyCount() }
+    val total by countFlow.collectAsState(0)
+    var events by remember { mutableStateOf(emptyList<com.musichub.data.db.PlayEvent>()) }
+    LaunchedEffect(limit) { graph.db.stats().history(if (limit == Int.MAX_VALUE) limit else limit + 1).collect { events = it } }
+    val parsed = remember(events, limit) { events.take(limit).mapNotNull { e -> runCatching { e to Track.fromJson(e.trackJson) }.getOrNull() } }
+    val tracks = remember(parsed) { parsed.map { it.second } }
+    val date = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
+
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = LocalBottomInset.current)) {
+        TextButton(onClick = onBack) { Text("‹  Статистика") }
+        Text("История прослушивания", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("$total прослушиваний · последние сверху · повторы сохранены", color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 10.dp))
+        LazyColumn {
+            itemsIndexed(parsed, key = { index, _ -> index }) { index, (event, track) ->
+                Text("${date.format(Date(event.startedAt))} · ${event.playedMs / 1000} с${if (event.fromWave) " · Моя волна" else ""}",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp, top = 10.dp))
+                TrackRow(track, onClick = { graph.engine.playTracks(tracks, index) })
+            }
+            if (events.size > limit) item {
+                Row {
+                    TextButton(onClick = { limit += 100 }) { Text("Показать ещё 100") }
+                    TextButton(onClick = { limit = Int.MAX_VALUE }) { Text("Показать все") }
+                }
+            }
+        }
+    }
 }

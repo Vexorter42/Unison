@@ -328,6 +328,16 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         _messages.tryEmit("Следующим: ${t.title}")
     }
 
+    fun playFromSource(original: Track, selected: Track) {
+        if (player.currentMediaItem?.track?.key == original.key) {
+            val index = player.currentMediaItemIndex
+            player.replaceMediaItem(index, toMediaItem(selected))
+            player.seekTo(index, 0)
+            player.prepare()
+            player.play()
+        } else playTracks(listOf(selected))
+    }
+
     fun enqueue(t: Track) {
         if (player.mediaItemCount == 0) return playTracks(listOf(t))
         player.addMediaItem(toMediaItem(t))
@@ -574,15 +584,24 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     // ---------- Лайки ----------
 
-    /**
-     * Сердечко кладёт трек в «Любимое Unison» (или убирает). В сервисы ничего не уходит —
-     * для этого в «Любимом» есть кнопка «Отправить в Яндекс / YouTube».
-     */
+    /** Сердечко всегда обновляет «Любимое Unison» и по желанию отправляет новый лайк в сервис. */
     fun toggleLike(track: Track? = null) {
         val t = track ?: player.currentMediaItem?.track ?: return
         scope.launch {
             val added = graph.favorites.toggle(t)
             _messages.emit(if (added) "Добавлено в «Любимое»" else "Убрано из «Любимого»")
+            if (added) {
+                val target = graph.settings.current.likeTarget
+                if (target != com.musichub.data.LikeTarget.UNISON) {
+                    val loggedIn = when (target) {
+                        com.musichub.data.LikeTarget.YANDEX -> graph.settings.current.yandexLoggedIn
+                        com.musichub.data.LikeTarget.YOUTUBE -> graph.settings.current.ytLoggedIn
+                        com.musichub.data.LikeTarget.VK -> graph.settings.current.vkLoggedIn
+                        com.musichub.data.LikeTarget.UNISON -> true
+                    }
+                    if (!loggedIn || !graph.favorites.syncLike(t, target)) _messages.emit("Лайк сохранён в Unison, но не отправлен в ${target.label}")
+                }
+            }
         }
     }
 

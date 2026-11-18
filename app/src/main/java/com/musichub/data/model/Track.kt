@@ -33,6 +33,11 @@ data class Track(
 ) {
     val key: String get() = "${source.prefix}:$sourceId"
 
+    fun fromSource(ref: TrackRef): Track = if (ref.source == source && ref.sourceId == sourceId) this else copy(
+        source = ref.source, sourceId = ref.sourceId,
+        alternates = (alternates.filterNot { it.source == ref.source } + TrackRef(source, sourceId)).distinctBy { it.source },
+    )
+
     /** Id трека в Яндексе без альбома — так их хранит список лайков. */
     val yandexId: String? get() = if (source == Source.YANDEX) sourceId.substringBefore(':') else null
 

@@ -16,6 +16,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -29,6 +33,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.musichub.App
 
 /*
  * «Стекло» в духе Liner: цвет экрану даёт обложка, а вся обвязка — нейтральные
@@ -40,11 +45,16 @@ fun glassFill(strong: Boolean = false): Color = Color.White.copy(alpha = if (str
 /** Размытая обложка на весь фон + затемнение, чтобы текст читался. */
 @Composable
 fun CoverBackdrop(url: String?, modifier: Modifier = Modifier, strength: Float = 1f) {
+    var useOriginal by remember(url) { mutableStateOf(false) }
+    val mobile = App.graph.router.mobileDataActive()
+    val primary = if (mobile) url else hiResCover(url)
+    val backup = if (mobile) hiResCover(url) else url
     val bg = MaterialTheme.colorScheme.background
     Box(modifier.fillMaxSize()) {
         if (url != null) {
             AsyncImage(
-                model = hiResCover(url),
+                model = if (useOriginal) backup else primary,
+                onError = { if (!useOriginal && primary != backup) useOriginal = true },
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

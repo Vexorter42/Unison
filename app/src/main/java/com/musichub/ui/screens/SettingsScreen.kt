@@ -201,6 +201,12 @@ fun SettingsScreen(nav: NavController) {
         }
 
         Section("Воспроизведение", initiallyExpanded = true) {
+            Text("Лайки: добавлять в «Любимое Unison» и", modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.musichub.data.LikeTarget.entries.forEach { target ->
+                    FilterChip(selected = s.likeTarget == target, onClick = { update { it.copy(likeTarget = target) } }, label = { Text(target.label) })
+                }
+            }
             SwitchRow(
                 "Замена из других сервисов",
                 "Если трек не играет в своём сервисе (нет подписки, удалён, регион) — найти его в другом",

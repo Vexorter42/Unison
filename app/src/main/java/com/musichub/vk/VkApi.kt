@@ -82,9 +82,9 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
                     ?: throw VkException(-1, "ВК: пустой ответ")
                 val e = root["error"].obj() ?: return root["response"] ?: JsonNull
                 val code = e.long("error_code")?.toInt() ?: -1
-                // 6 — «слишком много запросов в секунду», 9 — flood control: оба лечатся паузой и повтором
-                if ((code == 6 || code == 9) && attempt < 3) {
-                    Thread.sleep(if (code == 6) 500L * (attempt + 1) else 2_000L * (attempt + 1))
+                // Код 9 — долгий flood control: повторять запрос здесь только продлевает ограничение.
+                if (code == 6 && attempt < 3) {
+                    Thread.sleep(500L * (attempt + 1))
                     throttle()
                     return@use
                 }
@@ -126,12 +126,15 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
 
     private fun pageAll(fetch: (offset: Int) -> JsonElement): List<Track> {
         val result = mutableListOf<Track>()
-        while (result.size < MAX_TRACKS) {
-            val r = fetch(result.size)
+        var offset = 0
+        while (offset < MAX_TRACKS) {
+            val r = fetch(offset)
+            val rawCount = r.obj()?.get("items").arr().size
             val page = items(r)
             result += page
+            offset += rawCount
             val total = r.obj()?.long("count") ?: 0
-            if (page.isEmpty() || result.size >= total) break
+            if (rawCount == 0 || offset >= total) break
         }
         return result
     }
@@ -155,7 +158,12 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
     suspend fun recommendations(): List<Track> = io { items(call("audio.getRecommendations", mapOf("count" to "100"))) }
 
     suspend fun playlists(): List<VkPlaylist> = io {
-        call("audio.getPlaylists", mapOf("owner_id" to uid, "count" to "100")).obj()?.get("items").arr().mapNotNull { el ->
+        val result = mutableListOf<VkPlaylist>()
+        var offset = 0
+        while (offset < 1000) {
+            val response = call("audio.getPlaylists", mapOf("owner_id" to uid, "count" to "100", "offset" to "$offset")).obj()
+            val raw = response?.get("items").arr()
+            result += raw.mapNotNull { el ->
             val o = el.obj() ?: return@mapNotNull null
             val cover = o["photo"].obj()?.str("photo_300")
                 ?: o["thumbs"].arr().firstOrNull().obj()?.str("photo_300")
@@ -167,7 +175,11 @@ class VkApi(private val http: Call.Factory, private val settings: SettingsReposi
                 count = o.long("count")?.toInt() ?: 0,
                 coverUrl = cover,
             )
+            }
+            offset += raw.size
+            if (raw.isEmpty() || offset >= (response?.long("count") ?: 0)) break
         }
+        result
     }
 
     suspend fun playlistTracks(p: VkPlaylist): List<Track> = io {

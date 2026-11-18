@@ -117,6 +117,10 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
 
     // ---------- Парсинг ----------
 
+    private fun imageUrl(raw: String?, size: String): String? = raw?.replace("%%", size)?.let {
+        if (it.startsWith("https://") || it.startsWith("http://")) it else "https://${it.trimStart('/')}"
+    }
+
     private fun parseTrack(o: JsonObject): Track? {
         val id = o.str("id") ?: return null
         val title = o.str("title") ?: return null
@@ -124,8 +128,7 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
         val albumId = album?.str("id")
         val version = o.str("version")?.takeIf { it.isNotBlank() }
         val artists = o["artists"].arr().mapNotNull { it.obj()?.str("name") }.joinToString(", ")
-        val cover = (o.str("coverUri") ?: album?.str("coverUri") ?: o.str("ogImage"))
-            ?.let { "https://" + it.replace("%%", "400x400") }
+        val cover = imageUrl(o.str("coverUri") ?: album?.str("coverUri") ?: o.str("ogImage"), "400x400")
         return Track(
             source = Source.YANDEX,
             sourceId = if (albumId != null) "$id:$albumId" else id,
@@ -149,7 +152,7 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
             kind = o.long("kind") ?: return null,
             title = o.str("title") ?: "Без названия",
             trackCount = o.long("trackCount")?.toInt() ?: 0,
-            coverUrl = coverUri?.let { "https://" + it.replace("%%", "200x200") },
+            coverUrl = imageUrl(coverUri, "200x200"),
         )
     }
 
@@ -214,8 +217,7 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
             .obj()?.get(field).obj()?.get("results").arr()
 
     private fun searchCover(o: JsonObject): String? =
-        (o.str("coverUri") ?: o["cover"].obj()?.str("uri") ?: o.str("ogImage"))
-            ?.let { if (it.startsWith("http")) it else "https://" + it.replace("%%", "400x400") }
+        imageUrl(o.str("coverUri") ?: o["cover"].obj()?.str("uri") ?: o.str("ogImage"), "400x400")
 
     private fun likedRefs(): List<String> {
         val items = get("/users/$uid/likes/tracks").obj()?.get("library").obj()?.get("tracks").arr()

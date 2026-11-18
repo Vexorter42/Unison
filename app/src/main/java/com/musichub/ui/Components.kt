@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -37,12 +38,17 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -55,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -91,6 +98,7 @@ import com.musichub.util.formatTime
 import com.musichub.util.hiResCover
 import com.musichub.util.tracksCount
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 fun NavController.openTracks(kind: String, arg: String, title: String) =
@@ -98,6 +106,10 @@ fun NavController.openTracks(kind: String, arg: String, title: String) =
 
 @Composable
 fun Cover(url: String?, size: Dp = Dp.Unspecified, modifier: Modifier = Modifier, corner: Dp = 8.dp) {
+    var useOriginal by remember(url) { mutableStateOf(false) }
+    val mobile = App.graph.router.mobileDataActive()
+    val primary = if (mobile) url else hiResCover(url)
+    val backup = if (mobile) hiResCover(url) else url
     Box(
         modifier
             .then(if (size != Dp.Unspecified) Modifier.size(size) else Modifier)
@@ -107,7 +119,11 @@ fun Cover(url: String?, size: Dp = Dp.Unspecified, modifier: Modifier = Modifier
     ) {
         Icon(Icons.Rounded.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         if (url != null) {
-            AsyncImage(model = hiResCover(url), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+            AsyncImage(
+                model = if (useOriginal) backup else primary, contentDescription = null,
+                contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize(),
+                onError = { if (!useOriginal && primary != backup) useOriginal = true },
+            )
         }
     }
 }
@@ -196,16 +212,32 @@ fun TrackRow(
                 } else Unit
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Ещё") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenu(
+                        expanded = menu, onDismissRequest = { menu = false },
+                        modifier = Modifier.widthIn(min = 230.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), RoundedCornerShape(18.dp)),
+                    ) {
+                        Text("ДЕЙСТВИЯ С ТРЕКОМ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                        if (track.alternates.isNotEmpty()) {
+                            Text("Играть из", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                            (listOf(com.musichub.data.model.TrackRef(track.source, track.sourceId)) + track.alternates).distinctBy { it.source }.forEach { ref ->
+                                DropdownMenuItem(
+                                    text = { Text(ref.source.label) }, leadingIcon = { SourceBadge(ref.source) },
+                                    onClick = { menu = false; engine.playFromSource(track, track.fromSource(ref)) },
+                                )
+                            }
+                            HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                        }
                         DropdownMenuItem(
                             text = { Text(if (track.key in favorites) "Убрать из «Любимого»" else "В «Любимое»") },
+                            leadingIcon = { Icon(Icons.Rounded.Favorite, null) },
                             onClick = { menu = false; engine.toggleLike(track) },
                         )
-                        DropdownMenuItem(text = { Text("Похожие треки") }, onClick = { menu = false; App.graph.pendingSimilar.value = track })
-                        DropdownMenuItem(text = { Text("Искать исполнителя") }, onClick = { menu = false; App.graph.pendingSearch.value = track.artists })
-                        DropdownMenuItem(text = { Text("Радио по треку") }, onClick = { menu = false; engine.startRadio(track) })
-                        DropdownMenuItem(text = { Text("Играть следующим") }, onClick = { menu = false; engine.playNext(track) })
-                        DropdownMenuItem(text = { Text("В очередь") }, onClick = { menu = false; engine.enqueue(track) })
+                        DropdownMenuItem(text = { Text("Похожие треки") }, leadingIcon = { Icon(Icons.Rounded.GraphicEq, null) }, onClick = { menu = false; App.graph.pendingSimilar.value = track })
+                        DropdownMenuItem(text = { Text("Искать исполнителя") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, onClick = { menu = false; App.graph.pendingSearch.value = track.artists })
+                        DropdownMenuItem(text = { Text("Радио по треку") }, leadingIcon = { Icon(Icons.Rounded.Radio, null) }, onClick = { menu = false; engine.startRadio(track) })
+                        HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                        DropdownMenuItem(text = { Text("Играть следующим") }, leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) }, onClick = { menu = false; engine.playNext(track) })
+                        DropdownMenuItem(text = { Text("В очередь") }, leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) }, onClick = { menu = false; engine.enqueue(track) })
                         DropdownMenuItem(text = { Text("В мой плейлист…") }, onClick = { menu = false; addDialog = true })
                         if (track.source == Source.LOCAL || track.source == Source.SOUNDCLOUD) {
                             // Файл уже на телефоне; SoundCloud отдаёт только поток
@@ -285,6 +317,14 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
     val engine = App.graph.engine
     val state by engine.state.collectAsStateWithLifecycle()
     val track = state.track ?: return
+    val slowMobileStream = App.graph.router.mobileDataActive() && track.source in listOf(Source.YOUTUBE, Source.SOUNDCLOUD)
+    var waitSeconds by remember(track.key, state.isBuffering) { mutableIntStateOf(90) }
+    LaunchedEffect(track.key, state.isBuffering, slowMobileStream) {
+        if (state.isBuffering && slowMobileStream) while (waitSeconds > 0) {
+            delay(1000)
+            waitSeconds--
+        }
+    }
     val view = LocalView.current
     val spin = remember { Animatable(0f) }
     LaunchedEffect(state.isPlaying) {
@@ -326,7 +366,7 @@ fun MiniPlayer(onOpen: () -> Unit, backdrop: Backdrop?) {
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
-                    track.artists,
+                    if (state.isBuffering && slowMobileStream) "Загрузка · до $waitSeconds с" else track.artists,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontSize = 12.sp,

@@ -20,6 +20,7 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.Socket
 import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
 
 /**
  * Раздельная маршрутизация трафика по сервисам:
@@ -46,7 +47,7 @@ class NetworkRouter(
 
     private val youtubeHosts = listOf(
         "youtube.com", "googlevideo.com", "ytimg.com", "youtu.be", "ggpht.com",
-        "youtube-nocookie.com", "youtubei.googleapis.com",
+        "youtube-nocookie.com", "youtubei.googleapis.com", "googleusercontent.com",
     )
     private val directHosts = listOf(
         "yandex.net", "yandex.ru", "yandex.com", "yandex.by", "yandex.kz", "ya.ru",
@@ -87,10 +88,22 @@ class NetworkRouter(
         bypassCheck = BypassCheck(network, vpnActive(), false, System.currentTimeMillis())
     }
 
-    fun clientFor(host: String): OkHttpClient = when (routeFor(host)) {
+    fun mobileDataActive(): Boolean = cm.getNetworkCapabilities(underlyingNetwork() ?: cm.activeNetwork)
+        ?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+
+    private val slowHosts = youtubeHosts + listOf("soundcloud.com", "sndcdn.com", "soundcloud.app.goo.gl")
+    @Volatile private var slowClientCache: Pair<OkHttpClient, OkHttpClient>? = null
+
+    fun clientFor(host: String): OkHttpClient {
+        val selected = when (routeFor(host)) {
         Route.PROXY -> proxyClient()
         Route.DIRECT -> directClient() ?: base
         Route.DEFAULT -> base
+        }
+        if (!mobileDataActive() || !matches(host, slowHosts)) return selected
+        slowClientCache?.takeIf { it.first === selected }?.let { return it.second }
+        return selected.newBuilder().connectTimeout(35, TimeUnit.SECONDS).readTimeout(90, TimeUnit.SECONDS).build()
+            .also { slowClientCache = selected to it }
     }
 
     /** Отдаёт каждому запросу клиента по его домену. Используется везде: API, плеер, картинки. */

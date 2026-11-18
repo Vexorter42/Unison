@@ -22,6 +22,9 @@ enum class Quality(val label: String) {
     LOW("Экономия трафика"),
 }
 
+@kotlinx.serialization.Serializable
+enum class LikeTarget(val label: String) { UNISON("Только Unison"), YANDEX("Яндекс"), YOUTUBE("YouTube Music"), VK("ВК · Моя музыка") }
+
 data class AppSettings(
     val yandexToken: String? = null,
     val yandexUid: Long? = null,
@@ -36,6 +39,7 @@ data class AppSettings(
     val fallbackToOthers: Boolean = true,
     /** Обычная очередь доиграла — продолжить похожими треками на последний. */
     val autoContinueSimilar: Boolean = false,
+    val likeTarget: LikeTarget = LikeTarget.UNISON,
     val mixYoutubeInWave: Boolean = false,
     val mixEvery: Int = 4,
     val quality: Quality = Quality.HIGH,
@@ -89,6 +93,7 @@ class SettingsRepository(private val context: Context) {
         val searchSc = booleanPreferencesKey("search_sc")
         val fallback = booleanPreferencesKey("fallback")
         val autoContinue = booleanPreferencesKey("auto_continue")
+        val likeTarget = stringPreferencesKey("like_target")
         val mix = booleanPreferencesKey("mix_yt")
         val mixEvery = intPreferencesKey("mix_every")
         val quality = stringPreferencesKey("quality")
@@ -136,6 +141,7 @@ class SettingsRepository(private val context: Context) {
         searchSoundcloud = p[Keys.searchSc] ?: true,
         fallbackToOthers = p[Keys.fallback] ?: true,
         autoContinueSimilar = p[Keys.autoContinue] ?: false,
+        likeTarget = p[Keys.likeTarget]?.let { runCatching { LikeTarget.valueOf(it) }.getOrNull() } ?: LikeTarget.UNISON,
         mixYoutubeInWave = p[Keys.mix] ?: false,
         mixEvery = p[Keys.mixEvery] ?: 4,
         quality = p[Keys.quality]?.let { runCatching { Quality.valueOf(it) }.getOrNull() } ?: Quality.HIGH,
@@ -170,6 +176,7 @@ class SettingsRepository(private val context: Context) {
         p[Keys.searchSc] = s.searchSoundcloud
         p[Keys.fallback] = s.fallbackToOthers
         p[Keys.autoContinue] = s.autoContinueSimilar
+        p[Keys.likeTarget] = s.likeTarget.name
         p[Keys.mix] = s.mixYoutubeInWave
         p[Keys.mixEvery] = s.mixEvery
         p[Keys.quality] = s.quality.name

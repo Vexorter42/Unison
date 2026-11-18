@@ -22,8 +22,8 @@ android {
         applicationId = "com.musichub"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.4.7"
+        versionCode = 20
+        versionName = "0.4.8"
         // Откуда приложение берёт OTA-обновления (GitHub Releases)
         buildConfigField("String", "UPDATE_REPO", "\"Vexorter42/Unison\"")
     }

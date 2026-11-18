@@ -116,6 +116,13 @@ interface StatsDao {
     )
     fun recent(limit: Int): Flow<List<PlayEvent>>
 
+    /** Полная история с повторами; UI подгружает её порциями. */
+    @Query("SELECT * FROM play_events ORDER BY startedAt DESC, id DESC LIMIT :limit")
+    fun history(limit: Int): Flow<List<PlayEvent>>
+
+    @Query("SELECT COUNT(*) FROM play_events")
+    fun historyCount(): Flow<Int>
+
     @Query("SELECT * FROM play_events")
     suspend fun all(): List<PlayEvent>
 

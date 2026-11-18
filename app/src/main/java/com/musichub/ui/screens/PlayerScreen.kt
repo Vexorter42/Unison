@@ -72,6 +72,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,6 +85,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,14 +95,18 @@ import androidx.media3.common.Player
 import com.musichub.App
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.links.Links
 import com.musichub.lyrics.Lyrics
 import com.musichub.ui.Cover
 import com.musichub.ui.CoverBackdrop
+import com.musichub.ui.shareTrack
+import androidx.compose.material.icons.rounded.Share
 import com.musichub.ui.SourceBadge
 import com.musichub.ui.hapticConfirm
 import com.musichub.ui.swipeTracks
 import com.musichub.util.formatTime
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 @Composable
@@ -113,6 +119,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     var showLyrics by rememberSaveable { mutableStateOf(false) }
     var sleepDialog by remember { mutableStateOf(false) }
     var queueSheet by remember { mutableStateOf(false) }
+    var sourceDialog by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf<Float?>(null) }
 
     val track = state.track
@@ -122,6 +129,15 @@ fun PlayerScreen(onBack: () -> Unit) {
     }
     val sleepActive = state.sleepAtMs != null || state.sleepEndOfTrack
     val view = LocalView.current
+    val context = LocalContext.current
+    val slowMobileStream = graph.router.mobileDataActive() && track.source in listOf(Source.YOUTUBE, Source.SOUNDCLOUD)
+    var waitSeconds by remember(track.key, state.isBuffering) { mutableIntStateOf(90) }
+    LaunchedEffect(track.key, state.isBuffering, slowMobileStream) {
+        if (state.isBuffering && slowMobileStream) while (waitSeconds > 0) {
+            delay(1000)
+            waitSeconds--
+        }
+    }
 
     // Свайп вниз сворачивает плеер в мини-плеер: экран едет за пальцем, уменьшается и скругляется
     val scope = rememberCoroutineScope()
@@ -242,8 +258,12 @@ fun PlayerScreen(onBack: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.clickable { graph.pendingSearch.value = track.artists },
         )
+        if (state.isBuffering && slowMobileStream) {
+            Text(if (waitSeconds > 0) "Мобильная сеть · ожидание ответа до $waitSeconds с" else "Мобильная сеть отвечает медленно…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+        }
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             SourceBadge(track.source)
+            if (track.alternates.isNotEmpty()) TextButton(onClick = { sourceDialog = true }) { Text("Выбрать источник") }
             if (state.viaFallback) Text("играет замена из другого сервиса", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
             if (track.mixed) Text("микс YouTube", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
             state.sleepAtMs?.let {
@@ -311,11 +331,33 @@ fun PlayerScreen(onBack: () -> Unit) {
                 IconButton(onClick = { engine.download(listOf(track)) }) { Icon(Icons.Rounded.Download, "Скачать") }
             }
             IconButton(onClick = { engine.startRadio(track) }) { Icon(Icons.Rounded.Radio, "Радио по треку") }
+            val shareUrl = Links.trackUrl(track)
+            IconButton(onClick = { shareUrl?.let { shareTrack(context, track, it) } }, enabled = shareUrl != null) {
+                Icon(Icons.Rounded.Share, "Поделиться")
+            }
             IconButton(onClick = { queueSheet = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Очередь") }
         }
     }
     }
 
+    if (sourceDialog) {
+        AlertDialog(
+            onDismissRequest = { sourceDialog = false },
+            title = { Text("Играть из") },
+            text = {
+                Column {
+                    (listOf(com.musichub.data.model.TrackRef(track.source, track.sourceId)) + track.alternates)
+                        .distinctBy { it.source }.forEach { ref ->
+                            TextButton(onClick = { sourceDialog = false; engine.playFromSource(track, track.fromSource(ref)) }) {
+                                SourceBadge(ref.source)
+                                Text(ref.source.label, modifier = Modifier.padding(start = 12.dp))
+                            }
+                        }
+                }
+            },
+            confirmButton = { TextButton(onClick = { sourceDialog = false }) { Text("Закрыть") } },
+        )
+    }
     if (sleepDialog) {
         AlertDialog(
             onDismissRequest = { sleepDialog = false },

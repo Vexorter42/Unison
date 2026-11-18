@@ -15,8 +15,8 @@ import kotlinx.coroutines.flow.stateIn
 data class SendResult(val sent: Int, val notFound: List<Track>)
 
 /**
- * «Любимое Unison» — собственный плейлист приложения. Сердечко кладёт трек сюда и никуда больше;
- * в Яндекс или YouTube лайки уходят только по кнопке «Отправить».
+ * «Любимое Unison» — собственный плейлист приложения. По выбору пользователя новый лайк
+ * дополнительно отправляется в Яндекс или YouTube Music.
  */
 class Favorites(private val graph: AppGraph) {
 
@@ -43,6 +43,32 @@ class Favorites(private val graph: AppGraph) {
         } else {
             add(listOf(track))
             true
+        }
+    }
+
+    /** Отправляет только что поставленный лайк в выбранный сервис и отмечает успешную отправку. */
+    suspend fun syncLike(track: Track, target: LikeTarget): Boolean = when (target) {
+        LikeTarget.UNISON -> true
+        LikeTarget.YANDEX -> {
+            val found = if (track.source == Source.YANDEX) track else findOnYandex(track)
+            val sent = found != null && runCatching { graph.yandex.setLiked(found, true) }.isSuccess
+            if (sent) dao.markSentYandex(listOf(track.key))
+            sent
+        }
+        LikeTarget.YOUTUBE -> {
+            val id = if (track.source == Source.YOUTUBE) track.sourceId else
+                track.alternates.firstOrNull { it.source == Source.YOUTUBE }?.sourceId
+                    ?: runCatching { graph.youtube.findMatch(track)?.sourceId }.getOrNull()
+            val sent = id != null && runCatching { graph.ytMusic.like(id) }.isSuccess
+            if (sent) dao.markSentYoutube(listOf(track.key))
+            sent
+        }
+        LikeTarget.VK -> {
+            val found = if (track.source == Source.VK) track else runCatching {
+                val query = TrackMatcher.splitYoutube(track)
+                TrackMatcher.best(query, graph.vk.search("${query.artists} ${query.title}"), threshold = 0.65)
+            }.getOrNull()
+            found != null && runCatching { graph.vk.add(found) }.isSuccess
         }
     }
 

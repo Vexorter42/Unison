@@ -137,7 +137,12 @@ fun HomeScreen(nav: NavController) {
         engine.startWave()
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(bottom = LocalBottomInset.current)) {
+    val ambientMood = moods.firstOrNull { it.value == settings.waveMood } ?: moods[0]
+    Column(
+        Modifier.fillMaxSize()
+            .background(Brush.verticalGradient(listOf(ambientMood.from.copy(alpha = 0.26f), Color(0xFF0E0E14), Color(0xFF0E0E14))))
+            .statusBarsPadding().padding(bottom = LocalBottomInset.current),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -183,7 +188,7 @@ fun HomeScreen(nav: NavController) {
             bass = { if (waveOn) engine.bassMeter.level() else 0f },
             onPlay = { if (waveSelected) engine.togglePlay() else engine.startWave() },
             onLogin = sourceLogin,
-            modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+            modifier = Modifier.weight(1f),
         ) {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -260,7 +265,7 @@ private fun WaveHero(
     var box by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var titleCenter by remember { mutableStateOf<Offset?>(null) }
 
-    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(Color(0xFF0E0E14)).onGloballyPositioned { box = it }) {
+    Box(modifier.fillMaxWidth().onGloballyPositioned { box = it }) {
         // Сфера из светящихся лент, центр — на надписи «Моя волна»
         WaveSphere(from, to, motion = sphereMotion, bass = bass, center = { titleCenter }, modifier = Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize()) {
