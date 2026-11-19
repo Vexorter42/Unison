@@ -67,6 +67,10 @@ data class AppSettings(
     /** Сессия YouTube Music (cookie после входа) и имя аккаунта. */
     val ytCookie: String? = null,
     val ytAccountName: String? = null,
+    /** Private Unison API endpoint and revocable session token. */
+    val cloudServer: String = "https://unison-api.vexorter.duckdns.org",
+    val cloudUsername: String? = null,
+    val cloudToken: String? = null,
 ) {
     val yandexLoggedIn: Boolean get() = yandexToken != null && yandexUid != null
     val vkLoggedIn: Boolean get() = vkToken != null && vkUserId != null
@@ -114,10 +118,21 @@ class SettingsRepository(private val context: Context) {
         val sphereMotion = booleanPreferencesKey("sphere_motion")
         val ytCookie = stringPreferencesKey("yt_cookie")
         val ytName = stringPreferencesKey("yt_name")
+        val cloudServer = stringPreferencesKey("unison_api_server")
+        val legacyCloudServer = stringPreferencesKey("cloud_server")
+        val cloudUsername = stringPreferencesKey("cloud_username")
+        val cloudToken = stringPreferencesKey("cloud_token")
+        val legacyCloudAppPassword = stringPreferencesKey("cloud_app_password")
     }
 
     // Читаем один раз при старте: настройки нужны синхронно (например, при получении ссылки на поток)
-    private val state = MutableStateFlow(runBlocking { read(context.dataStore.data.first()) })
+    private val state = MutableStateFlow(runBlocking {
+        context.dataStore.edit { p ->
+            p.remove(Keys.legacyCloudServer)
+            p.remove(Keys.legacyCloudAppPassword)
+        }
+        read(context.dataStore.data.first())
+    })
     val flow: StateFlow<AppSettings> = state.asStateFlow()
     val current: AppSettings get() = state.value
 
@@ -162,6 +177,9 @@ class SettingsRepository(private val context: Context) {
         sphereMotion = p[Keys.sphereMotion] ?: true,
         ytCookie = p[Keys.ytCookie],
         ytAccountName = p[Keys.ytName],
+        cloudServer = p[Keys.cloudServer] ?: "https://unison-api.vexorter.duckdns.org",
+        cloudUsername = p[Keys.cloudUsername],
+        cloudToken = p[Keys.cloudToken],
     )
 
     private fun write(p: MutablePreferences, s: AppSettings) {
@@ -197,6 +215,9 @@ class SettingsRepository(private val context: Context) {
         p[Keys.sphereMotion] = s.sphereMotion
         p.putOrRemove(Keys.ytCookie, s.ytCookie)
         p.putOrRemove(Keys.ytName, s.ytAccountName)
+        p[Keys.cloudServer] = s.cloudServer
+        p.putOrRemove(Keys.cloudUsername, s.cloudUsername)
+        p.putOrRemove(Keys.cloudToken, s.cloudToken)
     }
 
     private fun <T> MutablePreferences.putOrRemove(key: Preferences.Key<T>, value: T?) {

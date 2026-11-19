@@ -20,6 +20,7 @@ import com.musichub.search.SearchHistory
 import com.musichub.search.SearchRepository
 import com.musichub.soundcloud.SoundCloudApi
 import com.musichub.transfer.TransferRepository
+import com.musichub.cloud.UnisonAccountSync
 import com.musichub.update.Updater
 import com.musichub.vk.VkApi
 import com.musichub.yandex.YandexApi
@@ -78,6 +79,7 @@ class AppGraph(app: Application) {
     /** Трек, для которого надо показать экран похожих (тап по названию). */
     val pendingSimilar = MutableStateFlow<Track?>(null)
     val transfer = TransferRepository(this)
+    val accountSync = UnisonAccountSync(this)
     val equalizer = EqualizerController(app)
     val engine: PlaybackEngine by lazy { PlaybackEngine(app, this) }
     val updater = Updater(app, http, scope)

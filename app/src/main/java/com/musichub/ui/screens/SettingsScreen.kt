@@ -73,6 +73,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.musichub.App
+import com.musichub.BuildConfig
 import com.musichub.data.AppSettings
 import com.musichub.data.Quality
 import com.musichub.net.HappRouting
@@ -104,6 +105,8 @@ fun SettingsScreen(nav: NavController) {
     LaunchedEffect(usageReload) { usage = graph.engine.cacheUsage() }
     var diagnostics by remember { mutableStateOf<List<String>?>(null) }
     var confirmClear by remember { mutableStateOf<ClearTarget?>(null) }
+    var secretTaps by remember { mutableIntStateOf(0) }
+    var showPrivateAccount by remember { mutableStateOf(false) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             val r = runCatching { graph.backup.export(uri) }
@@ -442,6 +445,15 @@ fun SettingsScreen(nav: NavController) {
 
         Section("О приложении") {
             Text(
+                "Unison ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp).clickable {
+                    secretTaps++
+                    if (secretTaps >= 7) { secretTaps = 0; showPrivateAccount = true }
+                },
+            )
+            Text(
                 "Unison — личный клиент для Яндекс Музыки, ВКонтакте и YouTube. Использует неофициальные API: " +
                     "что-то может перестать работать после обновлений сервисов. Тексты песен — LRCLIB.",
                 style = MaterialTheme.typography.bodySmall,
@@ -489,6 +501,7 @@ fun SettingsScreen(nav: NavController) {
             dismissButton = { TextButton(onClick = { confirmClear = null }) { Text("Отмена") } },
         )
     }
+    if (showPrivateAccount) PrivateAccountDialog(onDismiss = { showPrivateAccount = false })
 }
 
 /** Раскрывающаяся категория настроек: заголовок со стрелкой, содержимое — по нажатию. */

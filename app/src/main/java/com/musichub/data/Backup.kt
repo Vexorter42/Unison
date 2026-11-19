@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.musichub.AppGraph
 import com.musichub.data.db.FavoriteTrack
+import com.musichub.data.db.LocalPlaylist
 import com.musichub.data.db.PlayEvent
 import com.musichub.data.db.PlaylistTrack
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,12 @@ class Backup(private val context: Context, private val graph: AppGraph) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     suspend fun export(uri: Uri): Int = withContext(Dispatchers.IO) {
+        val bytes = exportBytes()
+        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("Не удалось открыть файл")
+        graph.db.playlists().allPlaylists().size + graph.db.favorites().all().size
+    }
+
+    suspend fun exportBytes(): ByteArray = withContext(Dispatchers.IO) {
         val s = graph.settings.current
         val db = graph.db
         val playlists = db.playlists().allPlaylists().map { p -> BackupPlaylist(p.name, p.createdAt, db.playlists().tracks(p.id)) }
@@ -72,20 +79,25 @@ class Backup(private val context: Context, private val graph: AppGraph) {
             favorites = db.favorites().all(),
             stats = db.stats().all(),
         )
-        val bytes = json.encodeToString(BackupFile.serializer(), file).toByteArray()
-        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("Не удалось открыть файл")
-        playlists.size + file.favorites.size
+        json.encodeToString(BackupFile.serializer(), file).toByteArray()
     }
 
     /** Восстановление добавляет к текущему, ничего не удаляя: плейлисты — новыми, дубли лайков и статистики пропускаются. */
     suspend fun restore(uri: Uri): RestoreResult = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } ?: error("Не удалось открыть файл")
-        val file = runCatching { json.decodeFromString(BackupFile.serializer(), text) }.getOrNull()
+        restoreBytes(text.encodeToByteArray())
+    }
+
+    suspend fun restoreBytes(bytes: ByteArray): RestoreResult = withContext(Dispatchers.IO) {
+        val file = runCatching { json.decodeFromString(BackupFile.serializer(), bytes.decodeToString()) }.getOrNull()
             ?.takeIf { it.app == "Unison" } ?: error("Это не резервная копия Unison")
         val db = graph.db
+        val knownPlaylists = db.playlists().allPlaylists().mapTo(HashSet()) { it.name to it.createdAt }
         file.playlists.forEach { p ->
-            val id = graph.library.create(p.name)
-            db.playlists().addTracks(p.tracks.map { it.copy(playlistId = id) })
+            if (knownPlaylists.add(p.name to p.createdAt)) {
+                val id = db.playlists().create(LocalPlaylist(name = p.name, createdAt = p.createdAt))
+                db.playlists().addTracks(p.tracks.map { it.copy(playlistId = id) })
+            }
         }
         db.favorites().insert(file.favorites)
         db.stats().insertAll(file.stats)
