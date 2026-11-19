@@ -416,6 +416,35 @@ fun SettingsScreen(nav: NavController) {
                 }
                 Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = "Открыть DonationAlerts", tint = Color(0xFFFF5A63))
             }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    .border(BorderStroke(1.dp, Color(0x664788F4)), RoundedCornerShape(20.dp))
+                    .clickable {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, "https://pay.cloudtips.ru/p/87298c71".toUri()))
+                        }.onFailure {
+                            Toast.makeText(context, "Не удалось открыть CloudTips", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape).background(Color(0x224788F4)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Favorite, contentDescription = null, tint = Color(0xFF4788F4))
+                }
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text("Поддержать Unison", fontWeight = FontWeight.SemiBold)
+                    Text("Донат через CloudTips", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = "Открыть CloudTips", tint = Color(0xFF4788F4))
+            }
         }
 
         Section("Обновления") {
