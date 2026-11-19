@@ -11,12 +11,16 @@ Copy this directory to ~/docker/unison-api, then run:
     docker-compose build
     docker-compose up -d
 
-Create a friend's account through SSH. The command hides and confirms the password:
+Create a friend's account through SSH. The helper prompts for a username and hidden, confirmed password, then restarts the API so the new account is loaded:
+
+    cd ~/docker/unison-api
+    ./create-user.sh
+
+The helper works with both `docker-compose` and the newer `docker compose` command. It does not accept passwords as command-line arguments or write them to a file.
+
+To run the steps manually instead:
 
     docker-compose run --rm --no-deps -it unison-api create-user
-
-Restart the service after adding an account so it reloads the account file:
-
     docker-compose restart
 
 To erase an account and its server-side backup, run:
