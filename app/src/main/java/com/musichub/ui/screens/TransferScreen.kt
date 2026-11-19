@@ -20,6 +20,8 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -147,6 +149,42 @@ fun TransferScreen(onBack: () -> Unit) {
                         LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
                     }
                     TextButton(onClick = repo::reset) { Text("Отменить") }
+                }
+                is TransferState.Review -> Column(Modifier.padding(top = 16.dp)) {
+                    val selectedKeys = s.rows.mapNotNull { it.selected?.key }
+                    val duplicates = selectedKeys.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+                    val automatic = s.rows.count { row -> row.selected != null && row.candidates.firstOrNull()?.confidence?.let { it >= 0.82 } == true }
+                    Text("Проверь совпадения", fontWeight = FontWeight.Bold)
+                    Text("Уверенно подобрано: $automatic · выбрано: ${selectedKeys.size} · повторов: ${duplicates.size}", style = MaterialTheme.typography.bodySmall)
+                    s.rows.forEachIndexed { index, row ->
+                        var menuOpen by remember(index, row) { mutableStateOf(false) }
+                        Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                            Text("${row.original.artists} — ${row.original.title}", fontWeight = FontWeight.Medium)
+                            val chosen = row.selected
+                            Box {
+                                TextButton(onClick = { menuOpen = true }) {
+                                    Text(chosen?.let { "${it.artists} — ${it.title} · ${((row.candidates.firstOrNull { c -> c.track.key == it.key }?.confidence ?: 0.0) * 100).toInt()}%" } ?: "Не переносить / не найдено")
+                                }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    row.candidates.forEach { candidate ->
+                                        DropdownMenuItem(
+                                            text = { Text("${candidate.track.artists} — ${candidate.track.title} · ${(candidate.confidence * 100).toInt()}%") },
+                                            onClick = { repo.selectCandidate(index, candidate.track.key); menuOpen = false },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Пропустить") },
+                                        onClick = { repo.selectCandidate(index, null); menuOpen = false },
+                                    )
+                                }
+                            }
+                            if (chosen != null && chosen.key in duplicates) {
+                                Text("Этот трек выбран несколько раз; в плейлист он попадёт один раз", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    TextButton(onClick = repo::confirm, enabled = selectedKeys.isNotEmpty()) { Text("Создать плейлист (${selectedKeys.distinct().size})") }
+                    TextButton(onClick = repo::reset) { Text("Отмена") }
                 }
                 is TransferState.Done -> GlassPanel(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                     Column(Modifier.padding(16.dp)) {

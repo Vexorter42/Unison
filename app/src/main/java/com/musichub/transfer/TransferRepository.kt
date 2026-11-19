@@ -21,8 +21,14 @@ enum class TransferTarget(val label: String, val service: String) {
 sealed interface TransferState {
     data object Idle : TransferState
     data class Working(val step: String, val done: Int, val total: Int) : TransferState
+    data class Review(val title: String, val target: TransferTarget, val rows: List<TransferRow>) : TransferState
     data class Done(val title: String, val found: Int, val total: Int, val missing: List<Track>, val target: TransferTarget) : TransferState
     data class Failed(val message: String) : TransferState
+}
+
+data class TransferCandidate(val track: Track, val confidence: Double)
+data class TransferRow(val original: Track, val candidates: List<TransferCandidate>, val selectedKey: String?) {
+    val selected: Track? get() = candidates.firstOrNull { it.track.key == selectedKey }?.track
 }
 
 /**
@@ -55,26 +61,52 @@ class TransferRepository(private val graph: AppGraph) {
                     return@launch
                 }
 
-                val matched = linkedMapOf<Int, Track>()
+                val rows = mutableListOf<TransferRow>()
                 tracks.forEachIndexed { i, t ->
                     _state.value = TransferState.Working("Ищу треки в ${target.service}", i, tracks.size)
-                    val found = when (target) {
+                    val candidates = when (target) {
                         TransferTarget.YANDEX -> findOnYandex(t)
                         TransferTarget.YOUTUBE -> findOnYoutube(t)
-                        TransferTarget.LOCAL -> t
+                        TransferTarget.LOCAL -> listOf(TransferCandidate(t, 1.0))
                     }
-                    found?.let { matched[i] = it }
-                    if (found?.source != t.source) delay(120) // не долбим поиск слишком часто
+                    val selected = candidates.firstOrNull()?.takeIf { it.confidence >= AUTO_SELECT_CONFIDENCE }?.track?.key
+                    rows += TransferRow(t, candidates, selected)
+                    if (candidates.firstOrNull()?.track?.source != t.source) delay(120) // не долбим поиск слишком часто
                 }
-                val missing = tracks.filterIndexed { i, _ -> i !in matched }
+                _state.value = TransferState.Review(name, target, rows)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.value = TransferState.Failed(e.message ?: "Ошибка")
+            }
+        }
+    }
 
-                _state.value = TransferState.Working("Сохраняю…", tracks.size, tracks.size)
-                when (target) {
-                    TransferTarget.YANDEX -> graph.yandex.createPlaylist(name, matched.values.toList())
-                    TransferTarget.YOUTUBE -> graph.ytMusic.createPlaylist(name, matched.values.map { it.sourceId })
+    fun selectCandidate(rowIndex: Int, key: String?) {
+        val review = _state.value as? TransferState.Review ?: return
+        val rows = review.rows.toMutableList()
+        val row = rows.getOrNull(rowIndex) ?: return
+        if (key != null && row.candidates.none { it.track.key == key }) return
+        rows[rowIndex] = row.copy(selectedKey = key)
+        _state.value = review.copy(rows = rows)
+    }
+
+    fun confirm() {
+        val review = _state.value as? TransferState.Review ?: return
+        job = graph.scope.launch {
+            try {
+                val chosen = review.rows.mapNotNull { it.selected }
+                val unique = chosen.distinctBy { if (review.target == TransferTarget.YOUTUBE) it.sourceId else it.key }
+                if (unique.isEmpty()) error("Выбери хотя бы один трек для переноса")
+                _state.value = TransferState.Working("Создаю плейлист…", unique.size, unique.size)
+                when (review.target) {
+                    TransferTarget.YANDEX -> graph.yandex.createPlaylist(review.title, unique)
+                    TransferTarget.YOUTUBE -> graph.ytMusic.createPlaylist(review.title, unique.map { it.sourceId })
                     TransferTarget.LOCAL -> Unit
                 }
-                _state.value = TransferState.Done(name, matched.size, tracks.size, missing, target)
+                val chosenKeys = unique.map { it.key }.toSet()
+                val missing = review.rows.filter { row -> row.selected?.key !in chosenKeys }.map { it.original }
+                _state.value = TransferState.Done(review.title, unique.size, review.rows.size, missing, review.target)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -88,21 +120,37 @@ class TransferRepository(private val graph: AppGraph) {
         _state.value = TransferState.Idle
     }
 
-    private suspend fun findOnYandex(t: Track): Track? {
-        if (t.source == Source.YANDEX && ':' in t.sourceId) return t
+    private suspend fun findOnYandex(t: Track): List<TransferCandidate> {
+        if (t.source == Source.YANDEX && ':' in t.sourceId) return listOf(TransferCandidate(t, 1.0))
         t.alternates.firstOrNull { it.source == Source.YANDEX && ':' in it.sourceId }?.let {
-            return t.copy(source = Source.YANDEX, sourceId = it.sourceId, alternates = emptyList())
+            return listOf(TransferCandidate(t.copy(source = Source.YANDEX, sourceId = it.sourceId, alternates = emptyList()), 1.0))
         }
         val q = TrackMatcher.splitYoutube(t)
-        val results = runCatching { graph.yandex.search("${q.artists} ${q.title}") }.getOrNull() ?: return null
-        return TrackMatcher.best(q, results, threshold = 0.65)
+        val results = runCatching { graph.yandex.search("${q.artists} ${q.title}") }.getOrNull().orEmpty()
+        return rank(q, results)
     }
 
-    private suspend fun findOnYoutube(t: Track): Track? {
-        if (t.source == Source.YOUTUBE) return t
+    private suspend fun findOnYoutube(t: Track): List<TransferCandidate> {
+        if (t.source == Source.YOUTUBE) return listOf(TransferCandidate(t, 1.0))
         t.alternates.firstOrNull { it.source == Source.YOUTUBE }?.let {
-            return t.copy(source = Source.YOUTUBE, sourceId = it.sourceId, alternates = emptyList())
+            return listOf(TransferCandidate(t.copy(source = Source.YOUTUBE, sourceId = it.sourceId, alternates = emptyList()), 1.0))
         }
-        return runCatching { graph.youtube.findMatch(t) }.getOrNull()
+        val q = TrackMatcher.splitYoutube(t)
+        val results = runCatching { graph.youtube.search("${q.artists} ${q.title}") }.getOrNull().orEmpty()
+        return rank(q, results)
+    }
+
+    private fun rank(query: Track, candidates: List<Track>): List<TransferCandidate> =
+        candidates.asSequence().map { TransferCandidate(it, TrackMatcher.score(query, it)) }
+            .filter { it.confidence >= MIN_CANDIDATE_CONFIDENCE }
+            .distinctBy { it.track.key }
+            .sortedByDescending { it.confidence }
+            .take(MAX_CANDIDATES)
+            .toList()
+
+    companion object {
+        private const val AUTO_SELECT_CONFIDENCE = 0.82
+        private const val MIN_CANDIDATE_CONFIDENCE = 0.35
+        private const val MAX_CANDIDATES = 5
     }
 }
