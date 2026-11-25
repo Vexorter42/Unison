@@ -19,6 +19,9 @@ class App : Application(), SingletonImageLoader.Factory {
         if (graph.settings.current.yandexLoggedIn) {
             graph.scope.launch { runCatching { graph.yandex.refreshLikes() } }
         }
+        if (!graph.settings.current.cloudToken.isNullOrBlank()) {
+            graph.scope.launch { runCatching { graph.accountSync.sync() } }
+        }
     }
 
     /** Обложки грузятся тем же маршрутом, что и их сервис (обложки YouTube — через прокси и т.д.). */

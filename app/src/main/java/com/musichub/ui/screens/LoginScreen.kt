@@ -50,6 +50,7 @@ import androidx.core.net.toUri
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.musichub.App
+import com.musichub.data.YtMusicSession
 import com.musichub.vk.VkApi
 import com.musichub.yandex.YandexApi
 import com.musichub.youtube.YtMusicApi
@@ -168,7 +169,7 @@ fun LoginScreen(service: String, onDone: () -> Unit) {
                             // YouTube: вход завершён, когда нас вернуло на music.youtube.com с сессией
                             if (isYt && Uri.parse(url).host == "music.youtube.com") {
                                 val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
-                                if ("SAPISID" in cookie) finish(cookie)
+                                if (YtMusicSession.hasAuthCookie(cookie)) finish(cookie)
                             }
                         }
 

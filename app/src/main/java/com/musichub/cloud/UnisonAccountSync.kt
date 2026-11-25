@@ -2,6 +2,8 @@ package com.musichub.cloud
 
 import com.musichub.AppGraph
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -16,6 +18,7 @@ data class CloudSyncResult(val uploadedBytes: Int, val restored: Boolean)
 /** Private Unison account API and revision-checked backup sync. */
 class UnisonAccountSync(private val graph: AppGraph) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val syncMutex = Mutex()
 
     suspend fun login(server: String, username: String, password: String): String = withContext(Dispatchers.IO) {
         val body = json.encodeToString(LoginRequest.serializer(), LoginRequest(username.trim(), password))
@@ -38,7 +41,7 @@ class UnisonAccountSync(private val graph: AppGraph) {
         }
     }
 
-    suspend fun sync(): CloudSyncResult = withContext(Dispatchers.IO) {
+    suspend fun sync(): CloudSyncResult = syncMutex.withLock { withContext(Dispatchers.IO) {
         val s = graph.settings.current
         val token = s.cloudToken?.takeIf { it.isNotBlank() } ?: error("Сначала войди в аккаунт Unison")
         val url = apiUrl(s.cloudServer, "v1", "sync")
@@ -69,7 +72,7 @@ class UnisonAccountSync(private val graph: AppGraph) {
                 else -> error(response.errorMessage("Не удалось сохранить копию"))
             }
         }
-    }
+    } }
 
     private fun apiUrl(server: String, vararg path: String): HttpUrl {
         val base = server.trim().trimEnd('/').toHttpUrlOrNull() ?: error("Неверный адрес Unison API")

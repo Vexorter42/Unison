@@ -2,6 +2,7 @@ package com.musichub.youtube
 
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.data.YtMusicSession
 import com.musichub.util.arr
 import com.musichub.util.obj
 import com.musichub.util.str
@@ -71,7 +72,7 @@ class YtMusicApi(private val http: Call.Factory, private val cookie: () -> Strin
     }
 
     private fun sapisidHash(cookie: String): String? {
-        val sapisid = Regex("""(?:^|;\s*)(?:__Secure-3PAPISID|SAPISID)=([^;]+)""").find(cookie)?.groupValues?.get(1) ?: return null
+        val sapisid = YtMusicSession.authCookieValue(cookie) ?: return null
         val ts = System.currentTimeMillis() / 1000
         val hash = MessageDigest.getInstance("SHA-1").digest("$ts $sapisid $ORIGIN".toByteArray())
             .joinToString("") { "%02x".format(it) }

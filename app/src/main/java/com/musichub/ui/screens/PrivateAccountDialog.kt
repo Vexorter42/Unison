@@ -27,7 +27,6 @@ fun PrivateAccountDialog(onDismiss: () -> Unit) {
     val graph = App.graph
     val settings by graph.settings.flow.collectAsState()
     val scope = rememberCoroutineScope()
-    var server by remember(settings.cloudServer) { mutableStateOf(settings.cloudServer) }
     var username by remember(settings.cloudUsername) { mutableStateOf(settings.cloudUsername.orEmpty()) }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -41,8 +40,6 @@ fun PrivateAccountDialog(onDismiss: () -> Unit) {
             Column {
                 Text("Закрытый аккаунт Unison для друзей. Логины создаёт владелец сервера.",
                     style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(server, { server = it }, label = { Text("Адрес сервера Unison") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 OutlinedTextField(username, { username = it }, label = { Text("Имя пользователя") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 if (!connected) {
@@ -65,8 +62,8 @@ fun PrivateAccountDialog(onDismiss: () -> Unit) {
                 message = null
                 scope.launch {
                     runCatching {
-                        val token = graph.accountSync.login(server, username, password)
-                        graph.settings.update { it.copy(cloudServer = server.trim().trimEnd('/'), cloudUsername = username.trim(), cloudToken = token) }
+                        val token = graph.accountSync.login(settings.cloudServer, username, password)
+                        graph.settings.update { it.copy(cloudUsername = username.trim(), cloudToken = token) }
                         password = ""
                         message = "Вход выполнен. Нажми «Синхронизировать», чтобы перенести библиотеку."
                     }.onFailure { message = it.message ?: "Не удалось войти" }

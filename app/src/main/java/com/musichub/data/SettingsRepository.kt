@@ -74,7 +74,7 @@ data class AppSettings(
 ) {
     val yandexLoggedIn: Boolean get() = yandexToken != null && yandexUid != null
     val vkLoggedIn: Boolean get() = vkToken != null && vkUserId != null
-    val ytLoggedIn: Boolean get() = ytCookie?.contains("SAPISID") == true
+    val ytLoggedIn: Boolean get() = YtMusicSession.hasAuthCookie(ytCookie)
 }
 
 @kotlinx.serialization.Serializable
