@@ -39,6 +39,7 @@ data class AppSettings(
     val fallbackToOthers: Boolean = true,
     /** Обычная очередь доиграла — продолжить похожими треками на последний. */
     val autoContinueSimilar: Boolean = false,
+    val radioFromSearch: Boolean = true,
     val likeTarget: LikeTarget = LikeTarget.UNISON,
     val mixYoutubeInWave: Boolean = false,
     val mixEvery: Int = 4,
@@ -97,6 +98,7 @@ class SettingsRepository(private val context: Context) {
         val searchSc = booleanPreferencesKey("search_sc")
         val fallback = booleanPreferencesKey("fallback")
         val autoContinue = booleanPreferencesKey("auto_continue")
+        val radioFromSearch = booleanPreferencesKey("radio_from_search")
         val likeTarget = stringPreferencesKey("like_target")
         val mix = booleanPreferencesKey("mix_yt")
         val mixEvery = intPreferencesKey("mix_every")
@@ -156,6 +158,7 @@ class SettingsRepository(private val context: Context) {
         searchSoundcloud = p[Keys.searchSc] ?: true,
         fallbackToOthers = p[Keys.fallback] ?: true,
         autoContinueSimilar = p[Keys.autoContinue] ?: false,
+        radioFromSearch = p[Keys.radioFromSearch] ?: true,
         likeTarget = p[Keys.likeTarget]?.let { runCatching { LikeTarget.valueOf(it) }.getOrNull() } ?: LikeTarget.UNISON,
         mixYoutubeInWave = p[Keys.mix] ?: false,
         mixEvery = p[Keys.mixEvery] ?: 4,
@@ -194,6 +197,7 @@ class SettingsRepository(private val context: Context) {
         p[Keys.searchSc] = s.searchSoundcloud
         p[Keys.fallback] = s.fallbackToOthers
         p[Keys.autoContinue] = s.autoContinueSimilar
+        p[Keys.radioFromSearch] = s.radioFromSearch
         p[Keys.likeTarget] = s.likeTarget.name
         p[Keys.mix] = s.mixYoutubeInWave
         p[Keys.mixEvery] = s.mixEvery

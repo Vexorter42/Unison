@@ -174,7 +174,8 @@ fun SearchScreen(initialQuery: String = "", onBack: () -> Unit, nav: NavControll
                 SearchCategory.TRACKS -> itemsIndexed(tracks, key = { _, t -> t.key }) { i, t ->
                     TrackRow(t, onClick = {
                         graph.searchHistory.add(query)
-                        engine.playTracks(tracks, i)
+                        if (graph.settings.current.radioFromSearch) engine.startRadio(t)
+                        else engine.playTracks(tracks, i)
                     })
                 }
                 SearchCategory.ARTISTS -> items(artists, key = { "${it.source}:${it.id}" }) { artist ->

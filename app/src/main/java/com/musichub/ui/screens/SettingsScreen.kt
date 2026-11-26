@@ -220,6 +220,8 @@ fun SettingsScreen(nav: NavController) {
                 "Плейлист доиграл — продолжить похожими треками на последний",
                 s.autoContinueSimilar,
             ) { v -> update { it.copy(autoContinueSimilar = v) } }
+            SwitchRow("Радио при выборе трека в поиске", "После выбранного трека будут играть похожие",
+                s.radioFromSearch) { v -> update { it.copy(radioFromSearch = v) } }
             SwitchRow(
                 "Подмешивать YouTube в Мою волну",
                 "Похожие треки с YouTube между треками волны",
