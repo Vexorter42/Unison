@@ -99,6 +99,7 @@ data class PlayerState(
 class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     private val appContext: Context = context.applicationContext
+    private val lastPlayback = appContext.getSharedPreferences("last_playback", Context.MODE_PRIVATE)
 
     private val scope = graph.scope
     val resolver = StreamResolver(graph)
@@ -223,6 +224,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             finishCurrent()
+            mediaItem?.track?.let { track -> lastPlayback.edit().putString("track", track.toJson()).apply() }
             beginCurrent(mediaItem?.track)
             maybeRefillWave()
             publish()
@@ -273,6 +275,9 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     init {
         player.addListener(listener)
+        lastPlayback.getString("track", null)?.let { saved ->
+            runCatching { Track.fromJson(saved) }.getOrNull()?.let { player.setMediaItem(toMediaItem(it)) }
+        }
         graph.equalizer.attach(player.audioSessionId)
         scope.launch { tickLoop() }
         scope.launch { resolver.fallbackKeys.collect { publish() } }
