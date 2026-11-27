@@ -236,10 +236,13 @@ fun SettingsScreen(nav: NavController) {
                     FilterChip(selected = s.quality == q, onClick = { update { it.copy(quality = q) } }, label = { Text(q.label) })
                 }
             }
-            SliderRow(
-                if (s.fadeSeconds == 0) "Плавные переходы: выкл" else "Плавные переходы: ${s.fadeSeconds} с",
-                s.fadeSeconds.toFloat(), 0f..12f, steps = 11,
-            ) { v -> update { it.copy(fadeSeconds = v.toInt()) } }
+            val crossfadeOn = s.crossfadeEnabled && s.fadeSeconds > 0
+            SwitchRow("Кроссфейд", "Следующий трек плавно начинается до окончания текущего", crossfadeOn) { enabled ->
+                update { it.copy(crossfadeEnabled = enabled, fadeSeconds = if (enabled && it.fadeSeconds == 0) 4 else it.fadeSeconds) }
+            }
+            if (crossfadeOn) SliderRow("Длительность перехода: ${s.fadeSeconds} с", s.fadeSeconds.coerceIn(1, 12).toFloat(), 1f..12f, steps = 10) {
+                v -> update { it.copy(fadeSeconds = v.toInt()) }
+            }
             NavRow("Эквалайзер") { nav.navigate("equalizer") }
         }
 

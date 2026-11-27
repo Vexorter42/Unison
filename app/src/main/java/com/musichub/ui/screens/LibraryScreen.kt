@@ -95,6 +95,9 @@ fun LibraryScreen(nav: NavController) {
         value = if (settings.ytLoggedIn) runCatching { graph.ytMusic.playlists() } else null
     }
     val favoritesCount by graph.favorites.keys.collectAsStateWithLifecycle()
+    val offlineLists by graph.offlinePlaylists.items.collectAsStateWithLifecycle()
+    val offlineTracks by graph.db.downloads().observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    var offlineDelete by remember { mutableStateOf<com.musichub.data.OfflinePlaylist?>(null) }
     var linkDialog by remember { mutableStateOf(false) }
     val show = { f: LibFilter -> filter == LibFilter.ALL || filter == f }
 
@@ -174,8 +177,29 @@ fun LibraryScreen(nav: NavController) {
             }
             item { GeneratedTile("Новый плейлист", "Из любых сервисов", Icons.Rounded.Add, Color(0xFF6B6B78)) { createDialog = true } }
             item { GeneratedTile("Скачанное", "Без интернета", Icons.Rounded.CloudDownload, Green) { nav.openTracks("downloads", "-", "Скачанное") } }
+            items(offlineLists, key = { "offline:${it.id}" }) { playlist ->
+                val files = offlineTracks.filter { it.trackKey in playlist.keys }
+                val mb = files.sumOf { it.bytes } / 1_048_576
+                GeneratedTile(playlist.title, "${tracksCount(files.size)} · $mb МБ · удерживайте для удаления", Icons.Rounded.CloudDownload, Green,
+                    onLongClick = { offlineDelete = playlist }) { nav.openTracks("offlineplaylist", playlist.id, playlist.title) }
+            }
             item { GeneratedTile("Перенос плейлистов", "Из любого сервиса в любой", Icons.Rounded.SwapHoriz, Orange) { nav.navigate("transfer") } }
         }
+    }
+
+    offlineDelete?.let { target ->
+        val batch by graph.engine.downloadBatch.collectAsStateWithLifecycle()
+        AlertDialog(onDismissRequest = { offlineDelete = null },
+            title = { Text("Удалить скачанный плейлист?") },
+            text = { Text(if (batch?.active == true) "Дождитесь завершения загрузок." else "Общие треки и отдельно скачанная музыка сохранятся.") },
+            confirmButton = { TextButton(enabled = batch?.active != true, onClick = {
+                graph.scope.launch {
+                    runCatching { graph.engine.removeOfflinePlaylist(target.id) }
+                        .onFailure { graph.engine.notify(it.message ?: "Не удалось удалить плейлист") }
+                }
+                offlineDelete = null
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { offlineDelete = null }) { Text("Отмена") } })
     }
 
     if (linkDialog) {

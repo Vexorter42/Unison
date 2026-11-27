@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.musichub.data.Backup
 import com.musichub.data.Favorites
 import com.musichub.data.LibraryRepository
+import com.musichub.data.OfflinePlaylists
 import com.musichub.data.SettingsRepository
 import com.musichub.data.TrackSources
 import com.musichub.data.db.AppDatabase
@@ -35,6 +36,7 @@ import java.util.concurrent.TimeUnit
 
 /** Ручной DI: все синглтоны приложения в одном месте. */
 class AppGraph(app: Application) {
+    val offlinePlaylists = OfflinePlaylists(app)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** DNS с запасным DoH: VPN вроде Happ может ломать системный DNS только для приложений. */

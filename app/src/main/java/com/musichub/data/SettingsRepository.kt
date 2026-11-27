@@ -45,6 +45,7 @@ data class AppSettings(
     val mixEvery: Int = 4,
     val quality: Quality = Quality.HIGH,
     val fadeSeconds: Int = 0,
+    val crossfadeEnabled: Boolean = true,
     val autoCacheMb: Int = 4096,
     val waveMood: String = "all",
     val waveDiversity: String = "default",
@@ -72,6 +73,8 @@ data class AppSettings(
     val cloudServer: String = "https://unison-api.vexorter.duckdns.org",
     val cloudUsername: String? = null,
     val cloudToken: String? = null,
+    val cloudSyncAt: Long = 0,
+    val cloudAutoSync: Boolean = true,
 ) {
     val yandexLoggedIn: Boolean get() = yandexToken != null && yandexUid != null
     val vkLoggedIn: Boolean get() = vkToken != null && vkUserId != null
@@ -98,6 +101,7 @@ class SettingsRepository(private val context: Context) {
         val searchSc = booleanPreferencesKey("search_sc")
         val fallback = booleanPreferencesKey("fallback")
         val autoContinue = booleanPreferencesKey("auto_continue")
+        val crossfadeEnabled = booleanPreferencesKey("crossfade_enabled")
         val radioFromSearch = booleanPreferencesKey("radio_from_search")
         val likeTarget = stringPreferencesKey("like_target")
         val mix = booleanPreferencesKey("mix_yt")
@@ -121,6 +125,8 @@ class SettingsRepository(private val context: Context) {
         val ytCookie = stringPreferencesKey("yt_cookie")
         val ytName = stringPreferencesKey("yt_name")
         val cloudServer = stringPreferencesKey("unison_api_server")
+        val cloudSyncAt = longPreferencesKey("unison_sync_at")
+        val cloudAutoSync = booleanPreferencesKey("unison_auto_sync")
         val legacyCloudServer = stringPreferencesKey("cloud_server")
         val cloudUsername = stringPreferencesKey("cloud_username")
         val cloudToken = stringPreferencesKey("cloud_token")
@@ -164,6 +170,7 @@ class SettingsRepository(private val context: Context) {
         mixEvery = p[Keys.mixEvery] ?: 4,
         quality = p[Keys.quality]?.let { runCatching { Quality.valueOf(it) }.getOrNull() } ?: Quality.HIGH,
         fadeSeconds = p[Keys.fade] ?: 0,
+        crossfadeEnabled = p[Keys.crossfadeEnabled] ?: true,
         autoCacheMb = p[Keys.cacheMb] ?: 4096,
         waveMood = p[Keys.mood] ?: "all",
         waveDiversity = p[Keys.diversity] ?: "default",
@@ -181,6 +188,8 @@ class SettingsRepository(private val context: Context) {
         ytCookie = p[Keys.ytCookie],
         ytAccountName = p[Keys.ytName],
         cloudServer = p[Keys.cloudServer] ?: "https://unison-api.vexorter.duckdns.org",
+        cloudSyncAt = p[Keys.cloudSyncAt] ?: 0L,
+        cloudAutoSync = p[Keys.cloudAutoSync] ?: true,
         cloudUsername = p[Keys.cloudUsername],
         cloudToken = p[Keys.cloudToken],
     )
@@ -203,6 +212,7 @@ class SettingsRepository(private val context: Context) {
         p[Keys.mixEvery] = s.mixEvery
         p[Keys.quality] = s.quality.name
         p[Keys.fade] = s.fadeSeconds
+        p[Keys.crossfadeEnabled] = s.crossfadeEnabled
         p[Keys.cacheMb] = s.autoCacheMb
         p[Keys.mood] = s.waveMood
         p[Keys.diversity] = s.waveDiversity
@@ -220,6 +230,8 @@ class SettingsRepository(private val context: Context) {
         p.putOrRemove(Keys.ytCookie, s.ytCookie)
         p.putOrRemove(Keys.ytName, s.ytAccountName)
         p[Keys.cloudServer] = s.cloudServer
+        p[Keys.cloudSyncAt] = s.cloudSyncAt
+        p[Keys.cloudAutoSync] = s.cloudAutoSync
         p.putOrRemove(Keys.cloudUsername, s.cloudUsername)
         p.putOrRemove(Keys.cloudToken, s.cloudToken)
     }

@@ -19,7 +19,7 @@ class App : Application(), SingletonImageLoader.Factory {
         if (graph.settings.current.yandexLoggedIn) {
             graph.scope.launch { runCatching { graph.yandex.refreshLikes() } }
         }
-        if (!graph.settings.current.cloudToken.isNullOrBlank()) {
+        if (!graph.settings.current.cloudToken.isNullOrBlank() && graph.settings.current.cloudAutoSync) {
             graph.scope.launch { runCatching { graph.accountSync.sync() } }
         }
     }

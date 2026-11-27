@@ -99,7 +99,13 @@ fun TrackListScreen(kind: String, arg: String, title: String, onBack: () -> Unit
 
     LaunchedEffect(kind, arg, reload) {
         error = null
-        if (kind == "downloads") {
+        if (kind == "offlineplaylist") {
+            graph.db.downloads().observeAll().collect { downloaded ->
+                val keys = graph.offlinePlaylists.items.value.firstOrNull { it.id == arg }?.keys.orEmpty()
+                val byKey = downloaded.associateBy { it.trackKey }
+                tracks = keys.mapNotNull { key -> byKey[key]?.let { runCatching { Track.fromJson(it.trackJson) }.getOrNull() } }
+            }
+        } else if (kind == "downloads") {
             graph.db.downloads().observeAll().collect { list ->
                 tracks = list.mapNotNull { runCatching { Track.fromJson(it.trackJson) }.getOrNull() }
             }
@@ -139,7 +145,7 @@ fun TrackListScreen(kind: String, arg: String, title: String, onBack: () -> Unit
                             tracks = list,
                             onPlay = { engine.playTracks(list) },
                             onShuffle = { engine.playTracks(list, shuffle = true) },
-                            onDownload = { engine.download(list) },
+                            onDownload = { engine.downloadPlaylist("$kind:$arg", title, list) },
                             onAddAll = { addAll = true },
                             onShare = { shareList(context, kind, arg, title, list) },
                         )
@@ -238,7 +244,7 @@ private fun Hero(
         ) {
             PrimaryPill("Слушать", Icons.Rounded.PlayArrow, onPlay, enabled = tracks.isNotEmpty())
             GlassIconButton(Icons.Rounded.Shuffle, "Вперемешку", onShuffle)
-            if (kind != "downloads" && kind != "files") GlassIconButton(Icons.Rounded.Download, "Скачать всё", onDownload)
+            if (kind !in setOf("downloads", "offlineplaylist", "files")) GlassIconButton(Icons.Rounded.Download, "Скачать всё", onDownload)
             if (kind !in setOf("local", "downloads", "favorites")) GlassIconButton(Icons.AutoMirrored.Rounded.PlaylistAdd, "В мои плейлисты", onAddAll)
             GlassIconButton(Icons.Rounded.Share, "Поделиться", onShare)
         }

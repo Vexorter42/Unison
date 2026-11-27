@@ -90,6 +90,7 @@ import com.kyant.backdrop.Backdrop
 import com.musichub.App
 import com.musichub.data.model.Source
 import com.musichub.data.model.Track
+import com.musichub.search.artistChoices
 import com.musichub.links.Links
 import com.musichub.ui.liquid.liquidCapsule
 import com.musichub.ui.liquid.liquidClickable
@@ -173,6 +174,7 @@ fun TrackRow(
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var addDialog by remember { mutableStateOf(false) }
+    var artistDialog by remember { mutableStateOf(false) }
     val isCurrent = currentKey == track.key
 
     ListItem(
@@ -233,7 +235,11 @@ fun TrackRow(
                             onClick = { menu = false; engine.toggleLike(track) },
                         )
                         DropdownMenuItem(text = { Text("Похожие треки") }, leadingIcon = { Icon(Icons.Rounded.GraphicEq, null) }, onClick = { menu = false; App.graph.pendingSimilar.value = track })
-                        DropdownMenuItem(text = { Text("Искать исполнителя") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, onClick = { menu = false; App.graph.pendingSearch.value = track.artists })
+                        DropdownMenuItem(text = { Text("Искать исполнителя") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, onClick = {
+                            menu = false
+                            val names = track.artistChoices()
+                            if (names.size > 1) artistDialog = true else names.firstOrNull()?.let { App.graph.pendingSearch.value = it }
+                        })
                         DropdownMenuItem(text = { Text("Радио по треку") }, leadingIcon = { Icon(Icons.Rounded.Radio, null) }, onClick = { menu = false; engine.startRadio(track) })
                         HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                         DropdownMenuItem(text = { Text("Играть следующим") }, leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) }, onClick = { menu = false; engine.playNext(track) })
@@ -258,6 +264,7 @@ fun TrackRow(
         },
     )
     if (addDialog) AddToPlaylistDialog(listOf(track), defaultName = "", onDismiss = { addDialog = false })
+    if (artistDialog) ArtistSearchDialog(track, onPick = { artistDialog = false; App.graph.pendingSearch.value = it }, onDismiss = { artistDialog = false })
 }
 
 /** Выбор своего плейлиста (или создание нового) для добавления треков. */

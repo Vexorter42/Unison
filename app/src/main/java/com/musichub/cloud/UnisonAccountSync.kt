@@ -2,6 +2,9 @@ package com.musichub.cloud
 
 import com.musichub.AppGraph
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -14,11 +17,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 data class CloudSyncResult(val uploadedBytes: Int, val restored: Boolean)
+data class SyncStatus(val active: Boolean = false, val error: String? = null)
 
 /** Private Unison account API and revision-checked backup sync. */
 class UnisonAccountSync(private val graph: AppGraph) {
     private val json = Json { ignoreUnknownKeys = true }
     private val syncMutex = Mutex()
+    private val _status = MutableStateFlow(SyncStatus())
+    val status = _status.asStateFlow()
+    fun resetStatus() { if (!_status.value.active) _status.value = SyncStatus() }
 
     suspend fun login(server: String, username: String, password: String): String = withContext(Dispatchers.IO) {
         val body = json.encodeToString(LoginRequest.serializer(), LoginRequest(username.trim(), password))
@@ -31,7 +38,7 @@ class UnisonAccountSync(private val graph: AppGraph) {
         }
     }
 
-    suspend fun logout() = withContext(Dispatchers.IO) {
+    suspend fun logout() = syncMutex.withLock { withContext(Dispatchers.IO) {
         val s = graph.settings.current
         val token = s.cloudToken ?: return@withContext
         val request = Request.Builder().url(apiUrl(s.cloudServer, "v1", "auth", "logout"))
@@ -39,9 +46,25 @@ class UnisonAccountSync(private val graph: AppGraph) {
         graph.http.newCall(request).execute().use { response ->
             if (response.code !in setOf(204, 401)) error(response.errorMessage("Не удалось завершить сессию"))
         }
+    } }
+
+    suspend fun sync(): CloudSyncResult = syncMutex.withLock {
+        _status.value = SyncStatus(active = true)
+        try {
+            val result = syncNow()
+            graph.settings.update { it.copy(cloudSyncAt = System.currentTimeMillis()) }
+            _status.value = SyncStatus()
+            result
+        } catch (e: CancellationException) {
+            _status.value = SyncStatus()
+            throw e
+        } catch (e: Exception) {
+            _status.value = SyncStatus(error = e.message ?: "Не удалось синхронизировать")
+            throw e
+        }
     }
 
-    suspend fun sync(): CloudSyncResult = syncMutex.withLock { withContext(Dispatchers.IO) {
+    private suspend fun syncNow(): CloudSyncResult = withContext(Dispatchers.IO) {
         val s = graph.settings.current
         val token = s.cloudToken?.takeIf { it.isNotBlank() } ?: error("Сначала войди в аккаунт Unison")
         val url = apiUrl(s.cloudServer, "v1", "sync")
@@ -72,7 +95,7 @@ class UnisonAccountSync(private val graph: AppGraph) {
                 else -> error(response.errorMessage("Не удалось сохранить копию"))
             }
         }
-    } }
+    }
 
     private fun apiUrl(server: String, vararg path: String): HttpUrl {
         val base = server.trim().trimEnd('/').toHttpUrlOrNull() ?: error("Неверный адрес Unison API")

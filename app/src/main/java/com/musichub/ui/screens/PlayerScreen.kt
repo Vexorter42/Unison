@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,6 +40,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
@@ -80,6 +84,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,6 +103,8 @@ import com.musichub.data.model.Track
 import com.musichub.links.Links
 import com.musichub.lyrics.Lyrics
 import com.musichub.ui.Cover
+import com.musichub.ui.ArtistSearchDialog
+import com.musichub.search.artistChoices
 import com.musichub.ui.CoverBackdrop
 import com.musichub.ui.shareTrack
 import androidx.compose.material.icons.rounded.Share
@@ -120,6 +127,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     var sleepDialog by remember { mutableStateOf(false) }
     var queueSheet by remember { mutableStateOf(false) }
     var sourceDialog by remember { mutableStateOf(false) }
+    var artistDialog by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf<Float?>(null) }
 
     val track = state.track
@@ -256,8 +264,17 @@ fun PlayerScreen(onBack: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.clickable { graph.pendingSearch.value = track.artists },
+            modifier = Modifier.clickable {
+                val names = track.artistChoices()
+                if (names.size > 1) artistDialog = true else names.firstOrNull()?.let { graph.pendingSearch.value = it }
+            },
         )
+        state.error?.let { error ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                TextButton(onClick = engine::retryPlayback) { Text("Попробовать снова") }
+            }
+        }
         if (state.isBuffering && slowMobileStream) {
             Text(if (waitSeconds > 0) "Мобильная сеть · ожидание ответа до $waitSeconds с" else "Мобильная сеть отвечает медленно…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
         }
@@ -340,6 +357,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     }
     }
 
+    if (artistDialog) ArtistSearchDialog(track, onPick = { artistDialog = false; graph.pendingSearch.value = it }, onDismiss = { artistDialog = false })
     if (sourceDialog) {
         AlertDialog(
             onDismissRequest = { sourceDialog = false },
@@ -386,8 +404,19 @@ fun PlayerScreen(onBack: () -> Unit) {
                         },
                         supportingContent = { Text(t.artists, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         leadingContent = { Cover(t.coverUrl, 40.dp) },
-                        trailingContent = { SourceBadge(t.source) },
-                        modifier = Modifier.clickable { engine.skipTo(i) },
+                        trailingContent = {
+                            Row {
+                                IconButton(onClick = { engine.moveQueueItem(i, i - 1) }, enabled = i > 0) { Icon(Icons.Rounded.KeyboardArrowUp, "Выше") }
+                                IconButton(onClick = { engine.moveQueueItem(i, i + 1) }, enabled = i < state.queue.lastIndex) { Icon(Icons.Rounded.KeyboardArrowDown, "Ниже") }
+                                IconButton(onClick = { engine.removeQueueItem(i) }, enabled = i != state.index) { Icon(Icons.Rounded.Close, "Убрать из очереди") }
+                            }
+                        },
+                        modifier = Modifier.pointerInput(i, state.index) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(onDragStart = { drag = 0f }, onDragEnd = {
+                                if (kotlin.math.abs(drag) > 100.dp.toPx() && i != state.index) engine.removeQueueItem(i)
+                            }) { _, amount -> drag += amount }
+                        }.clickable { engine.skipTo(i) },
                     )
                 }
             }

@@ -29,7 +29,7 @@ class SearchRepository(
                 val yt = async { if (s.searchYoutube) runCatching { youtube.searchArtists(query) } else Result.success(emptyList()) }
                 val results = listOf("Яндекс" to ya.await(), "YouTube" to yt.await())
                 SearchResult(
-                    artists = results.flatMap { it.second.getOrDefault(emptyList()) }.distinctBy { "${it.source}:${it.id}" },
+                    artists = SearchRelevance.rank(query, results.flatMap { it.second.getOrDefault(emptyList()) }.distinctBy { "${it.source}:${it.id}" }) { it.name },
                     errors = results.mapNotNull { (name, r) -> r.exceptionOrNull()?.let { "$name: ${it.message}" } },
                 )
             }
@@ -64,7 +64,7 @@ class SearchRepository(
         var merged = emptyList<Track>()
         for ((_, r) in results) merged = merge(merged, r.getOrDefault(emptyList()))
         SearchResult(
-            tracks = files.await().getOrDefault(emptyList()) + merged,
+            tracks = SearchRelevance.rankTracks(query, files.await().getOrDefault(emptyList()) + merged),
             errors = results.mapNotNull { (name, r) -> r.exceptionOrNull()?.let { "$name: ${it.message}" } },
         )
     }
@@ -83,7 +83,7 @@ class SearchRepository(
         val added = mutableListOf<Track>()
         for (t in extra) {
             val idx = result.indexOfFirst { existing ->
-                existing.alternates.none { it.source == t.source } && TrackMatcher.score(existing, t) >= 0.78
+                existing.source != t.source && existing.alternates.none { it.source == t.source } && TrackMatcher.canMerge(existing, t)
             }
             if (idx >= 0) {
                 val e = result[idx]

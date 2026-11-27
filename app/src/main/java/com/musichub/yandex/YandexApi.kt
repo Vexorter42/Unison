@@ -127,13 +127,15 @@ class YandexApi(private val http: Call.Factory, private val settings: SettingsRe
         val album = o["albums"].arr().firstOrNull().obj()
         val albumId = album?.str("id")
         val version = o.str("version")?.takeIf { it.isNotBlank() }
-        val artists = o["artists"].arr().mapNotNull { it.obj()?.str("name") }.joinToString(", ")
+        val artistNames = o["artists"].arr().mapNotNull { it.obj()?.str("name")?.takeIf(String::isNotBlank) }
+        val artists = artistNames.joinToString(", ")
         val cover = imageUrl(o.str("coverUri") ?: album?.str("coverUri") ?: o.str("ogImage"), "400x400")
         return Track(
             source = Source.YANDEX,
             sourceId = if (albumId != null) "$id:$albumId" else id,
             title = if (version != null) "$title ($version)" else title,
             artists = artists.ifEmpty { "Неизвестный исполнитель" },
+            artistNames = artistNames,
             album = album?.str("title"),
             durationMs = o.long("durationMs") ?: 0,
             coverUrl = cover,

@@ -30,6 +30,7 @@ data class Track(
     val alternates: List<TrackRef> = emptyList(),
     /** Трек подмешан в Мою волну из YouTube. */
     val mixed: Boolean = false,
+    val artistNames: List<String> = emptyList(),
 ) {
     val key: String get() = "${source.prefix}:$sourceId"
 

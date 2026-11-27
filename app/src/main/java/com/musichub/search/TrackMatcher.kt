@@ -53,13 +53,31 @@ object TrackMatcher {
 
     fun best(target: Track, candidates: List<Track>, threshold: Double = 0.7): Track? =
         candidates.map { it to score(target, it) }
-            .filter { it.second >= threshold }
+            .filter { it.second >= threshold && canMerge(target, it.first) }
             .maxByOrNull { it.second }
             ?.first
 
+    /** Stronger than fuzzy matching: unrelated recordings must never become alternate sources. */
+    fun canMerge(first: Track, second: Track): Boolean {
+        val a = splitYoutube(first)
+        val b = splitYoutube(second)
+        val aTitle = tokens(a.title)
+        val bTitle = tokens(b.title)
+        val aArtist = tokens(a.artists) - setOf("the")
+        val bArtist = tokens(b.artists) - setOf("the")
+        if (aTitle.isEmpty() || bTitle.isEmpty() || aArtist.isEmpty() || bArtist.isEmpty()) return false
+        if (jaccard(aTitle, bTitle) < 0.65 || minOf(containment(aTitle, bTitle), containment(bTitle, aTitle)) < 0.8) return false
+        if (jaccard(aArtist, bArtist) < 0.5) return false
+        if (a.durationMs > 0 && b.durationMs > 0 && abs(a.durationMs - b.durationMs) > 12_000) return false
+        val versions = setOf("live", "remix", "acoustic", "slowed", "sped", "instrumental", "karaoke", "cover", "концерт", "ремикс")
+        fun versionsIn(text: String) = text.lowercase().replace(nonWord, " ").split(' ').toSet().intersect(versions)
+        if (versionsIn(first.title) != versionsIn(second.title)) return false
+        return true
+    }
+
     /** «Artist - Title (Official Video)» с YouTube → отдельные исполнитель и название. */
     fun splitYoutube(t: Track): Track {
-        if (t.source != Source.YOUTUBE || " - " !in t.title) return t
+        if ((t.source != Source.YOUTUBE && t.source != Source.SOUNDCLOUD) || " - " !in t.title) return t
         val artist = t.title.substringBefore(" - ").trim()
         val title = t.title.substringAfter(" - ").replace(noiseInBrackets, "").trim()
         return t.copy(artists = artist, title = title)

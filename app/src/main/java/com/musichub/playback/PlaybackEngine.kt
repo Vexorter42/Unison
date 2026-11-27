@@ -56,7 +56,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 /** Прогресс пачки загрузок: сколько всего, сколько готово и как идёт текущий трек. */
 data class DownloadBatch(
@@ -75,6 +78,7 @@ data class PlayerState(
     val track: Track? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    val error: String? = null,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val hasNext: Boolean = false,
@@ -187,6 +191,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     private var downloadWorker: Job? = null
     @Volatile private var currentWriter: CacheWriter? = null
     @Volatile private var cancelRequested = false
+    private var removingOfflinePlaylist = false
     val downloadedKeys: StateFlow<Set<String>> = graph.db.downloads().observeAll()
         .map { list -> list.map { it.trackKey }.toSet() }
         .stateIn(scope, SharingStarted.Eagerly, emptySet())
@@ -217,27 +222,60 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     private var lastStatsFlush = 0L
     private var consecutiveErrors = 0
     private var queueCache: List<Track> = emptyList()
+    private var playbackError: String? = null
+    private var restoringPlayback = false
+    private val snapshotRevision = AtomicLong()
+    private val snapshotWriteLock = Mutex()
+    private var fadePlayer: ExoPlayer? = null
+    private var fadeNextId: String? = null
+    private var fadeFailedId: String? = null
+    private var fadeStarted = false
+    private var fadeStartRemaining = 0L
 
     private var sleepAt: Long? = null
     private var sleepEndOfTrack = false
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            finishCurrent()
+            val incoming = fadePlayer
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && fadeStarted && incoming != null && incoming.playbackState != Player.STATE_ENDED && mediaItem?.mediaId == fadeNextId) {
+                val position = incoming.currentPosition.coerceAtLeast(0)
+                cancelCrossfade()
+                player.seekTo(position)
+            } else cancelCrossfade()
+            fadeFailedId = null
+            playbackError = null
+            if (!restoringPlayback) finishCurrent()
             mediaItem?.track?.let { track -> lastPlayback.edit().putString("track", track.toJson()).apply() }
-            beginCurrent(mediaItem?.track)
-            maybeRefillWave()
+            if (!restoringPlayback) {
+                beginCurrent(mediaItem?.track)
+                maybeRefillWave()
+            }
             publish()
+            savePlayback()
         }
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (fadePlayer != null && player.nextMediaItemIndex.let { it == C.INDEX_UNSET || player.getMediaItemAt(it).mediaId != fadeNextId }) cancelCrossfade()
             queueCache = List(player.mediaItemCount) { player.getMediaItemAt(it).track }.filterNotNull()
             publish()
+            savePlayback()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) consecutiveErrors = 0 else flushStats()
+            if (isPlaying) {
+                if (cur == null) beginCurrent(player.currentMediaItem?.track)
+                maybeRefillWave()
+            }
+            if (!isPlaying) fadePlayer?.pause()
             publish()
+            if (!isPlaying) savePlayback()
+        }
+
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) { cancelCrossfade(); fadeFailedId = null }
+            savePlayback()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -256,18 +294,20 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
             publish()
         }
 
-        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = publish()
-        override fun onRepeatModeChanged(repeatMode: Int) = publish()
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { publish(); savePlayback() }
+        override fun onRepeatModeChanged(repeatMode: Int) { publish(); savePlayback() }
 
         override fun onPlayerError(error: PlaybackException) {
-            val reason = generateSequence<Throwable>(error) { it.cause }.mapNotNull { it.message }.lastOrNull()
-            _messages.tryEmit("Не удалось воспроизвести «${player.currentMediaItem?.track?.title}»: ${reason ?: error.errorCodeName}")
+            cancelCrossfade()
+            val reason = generateSequence<Throwable>(error) { it.cause }.joinToString(" ") { "${it.javaClass.simpleName} ${it.message.orEmpty()}" }
+            playbackError = playbackProblem(reason)
+            _messages.tryEmit("Не удалось воспроизвести «${player.currentMediaItem?.track?.title}»: ${playbackError}")
             // Пропускаем битый трек, но не бесконечно (например, без интернета)
             if (++consecutiveErrors < 5 && player.hasNextMediaItem()) {
                 player.seekToNextMediaItem()
                 player.prepare()
                 player.play()
-            }
+            } else publish()
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) = graph.equalizer.attach(audioSessionId)
@@ -275,9 +315,25 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     init {
         player.addListener(listener)
-        lastPlayback.getString("track", null)?.let { saved ->
-            runCatching { Track.fromJson(saved) }.getOrNull()?.let { player.setMediaItem(toMediaItem(it)) }
+        restoringPlayback = true
+        val saved = lastPlayback.getString("snapshot", null)?.let {
+            runCatching { snapshotJson.decodeFromString(PlaybackSnapshot.serializer(), it) }.getOrNull()
         }
+        if (saved != null && saved.tracks.isNotEmpty()) {
+            waveMode = saved.waveMode && saved.provider != null
+            radioProvider = saved.provider
+            waveSource = saved.waveSource
+            radioStation = saved.station
+            radioTitle = saved.title
+            waveBatchId = saved.batchId
+            player.shuffleModeEnabled = saved.shuffle
+            player.repeatMode = saved.repeatMode.coerceIn(Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL)
+            player.setMediaItems(saved.tracks.map(::toMediaItem), saved.index.coerceIn(saved.tracks.indices), saved.positionMs.coerceAtLeast(0))
+        } else lastPlayback.getString("track", null)?.let { savedTrack ->
+            runCatching { Track.fromJson(savedTrack) }.getOrNull()?.let { player.setMediaItem(toMediaItem(it)) }
+        }
+        restoringPlayback = false
+        publish()
         graph.equalizer.attach(player.audioSessionId)
         scope.launch { tickLoop() }
         scope.launch { resolver.fallbackKeys.collect { publish() } }
@@ -309,6 +365,23 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         .build()
 
     private fun queueKeys(): Set<String> = queueCache.mapTo(HashSet()) { it.key }
+
+    private fun savePlayback() {
+        if (restoringPlayback || player.mediaItemCount == 0) return
+        val tracks = (0 until player.mediaItemCount).mapNotNull { player.getMediaItemAt(it).track }
+        if (tracks.size != player.mediaItemCount) return
+        val snapshot = PlaybackSnapshot(tracks, player.currentMediaItemIndex, player.currentPosition.coerceAtLeast(0),
+            waveMode, radioProvider, waveSource, radioStation, radioTitle, waveBatchId,
+            player.shuffleModeEnabled, player.repeatMode)
+        val revision = snapshotRevision.incrementAndGet()
+        scope.launch(Dispatchers.IO) {
+            snapshotWriteLock.withLock {
+                if (revision != snapshotRevision.get()) return@withLock
+                val encoded = runCatching { snapshotJson.encodeToString(PlaybackSnapshot.serializer(), snapshot) }.getOrNull() ?: return@withLock
+                if (revision == snapshotRevision.get()) lastPlayback.edit().putString("snapshot", encoded).commit()
+            }
+        }
+    }
 
     // ---------- Управление ----------
 
@@ -359,6 +432,13 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         player.play()
     }
 
+    fun retryPlayback() {
+        playbackError = null
+        player.prepare()
+        player.play()
+        publish()
+    }
+
     fun next() = player.seekToNextMediaItem()
 
     fun previous() {
@@ -374,6 +454,18 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
     fun seekTo(ms: Long) = player.seekTo(ms)
 
     fun skipTo(index: Int) = player.seekTo(index, 0)
+
+    fun moveQueueItem(from: Int, to: Int) {
+        if (from !in 0 until player.mediaItemCount || to !in 0 until player.mediaItemCount || from == to) return
+        player.moveMediaItem(from, to)
+        savePlayback()
+    }
+
+    fun removeQueueItem(index: Int) {
+        if (index !in 0 until player.mediaItemCount || index == player.currentMediaItemIndex) return
+        player.removeMediaItem(index)
+        savePlayback()
+    }
 
     fun toggleShuffle() {
         player.shuffleModeEnabled = !player.shuffleModeEnabled
@@ -640,15 +732,19 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
      * Ставит треки в очередь загрузки. Очередь одна на всё приложение: можно добавлять плейлисты,
      * пока скачивается другой, — общий прогресс считается по всем.
      */
-    fun download(tracks: List<Track>) {
+    fun download(tracks: List<Track>) = enqueueDownloads(tracks, independent = true)
+
+    private fun enqueueDownloads(tracks: List<Track>, independent: Boolean, knownDownloaded: Set<String> = downloadedKeys.value) {
+        if (removingOfflinePlaylist) { notify("Дождитесь удаления скачанного плейлиста"); return }
         val queued = pendingDownloads.mapTo(HashSet()) { it.key }
         val todo = tracks.distinctBy { it.key }
             .filter { it.source != Source.LOCAL && it.source != Source.SOUNDCLOUD } // файлы и так на телефоне; SoundCloud — только онлайн
-            .filter { it.key !in downloadedKeys.value && it.key !in _downloading.value && it.key !in queued }
+            .filter { it.key !in knownDownloaded && it.key !in _downloading.value && it.key !in queued }
         if (todo.isEmpty()) {
             if (tracks.size > 1) notify("Всё уже скачано")
             return
         }
+        if (independent) graph.offlinePlaylists.keepIndependent(todo.mapTo(HashSet()) { it.key })
         pendingDownloads.addAll(todo)
         _downloading.update { m -> m + todo.associate { it.key to 0f } }
         _downloadBatch.update { b ->
@@ -657,6 +753,30 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         }
         DownloadService.start(appContext)
         if (downloadWorker?.isActive != true) downloadWorker = scope.launch { runDownloadQueue() }
+    }
+
+    fun downloadPlaylist(id: String, title: String, tracks: List<Track>) {
+        if (removingOfflinePlaylist) { notify("Дождитесь удаления скачанного плейлиста"); return }
+        scope.launch {
+            val existing = graph.db.downloads().observeAll().first().mapTo(HashSet()) { it.trackKey }
+            if (removingOfflinePlaylist) { notify("Дождитесь удаления скачанного плейлиста"); return@launch }
+            graph.offlinePlaylists.register(id, title, tracks, existing + _downloading.value.keys)
+            enqueueDownloads(tracks, independent = false, knownDownloaded = existing)
+        }
+    }
+
+    suspend fun removeOfflinePlaylist(id: String) {
+        check(_downloadBatch.value?.active != true) { "Дождитесь завершения загрузок" }
+        check(!removingOfflinePlaylist) { "Удаление уже выполняется" }
+        removingOfflinePlaylist = true
+        try {
+            val (remaining, keys) = graph.offlinePlaylists.removalPlan(id)
+            withContext(Dispatchers.IO) { keys.forEach { downloadCache.removeResource(it) } }
+            keys.forEach { graph.db.downloads().delete(it) }
+            graph.offlinePlaylists.applyRemoval(remaining)
+        } finally {
+            removingOfflinePlaylist = false
+        }
     }
 
     /** Отменяет текущую и все ожидающие загрузки (уже скачанное остаётся). */
@@ -686,6 +806,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
                         }
                     }
                     currentWriter = writer
+                    if (cancelRequested) writer.cancel()
                     writer.cache()
                     total
                 }
@@ -738,10 +859,13 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     /** Удаляет всё скачанное для офлайна (идущие загрузки сначала отменяются). Возвращает, сколько треков удалено. */
     suspend fun clearDownloads(): Int {
+        check(!removingOfflinePlaylist) { "Дождитесь удаления скачанного плейлиста" }
         cancelDownloads()
+        downloadWorker?.join()
         val count = graph.db.downloads().observeAll().first().size
         withContext(Dispatchers.IO) { downloadCache.keys.toList().forEach { downloadCache.removeResource(it) } }
         graph.db.downloads().deleteAll()
+        graph.offlinePlaylists.clear()
         return count
     }
 
@@ -813,12 +937,14 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
 
     private suspend fun tickLoop() {
         var last = SystemClock.elapsedRealtime()
+        var lastSnapshot = last
         while (true) {
-            delay(250)
+            delay(50)
             val now = SystemClock.elapsedRealtime()
             if (player.isPlaying) curPlayedMs += now - last
             last = now
             if (player.isPlaying && now - lastStatsFlush > 10_000) flushStats()
+            if (player.isPlaying && now - lastSnapshot >= 5_000) { savePlayback(); lastSnapshot = now }
             applyVolume()
             sleepAt?.let {
                 if (System.currentTimeMillis() >= it) {
@@ -840,22 +966,63 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
         }
     }
 
-    /** Плавное затухание в конце трека и нарастание в начале + затухание перед таймером сна. */
+    /** Наложение следующего трека и затухание перед таймером сна. */
     private fun applyVolume() {
         var v = 1f
-        val fadeMs = graph.settings.current.fadeSeconds * 1000L
+        val fadeSettings = graph.settings.current
+        val fadeMs = if (fadeSettings.crossfadeEnabled) fadeSettings.fadeSeconds.coerceIn(0, 12) * 1000L else 0L
         val dur = player.duration
-        if (fadeMs > 0 && dur != C.TIME_UNSET && dur > fadeMs * 3) {
-            val pos = player.currentPosition
-            val fadeIn = minOf(fadeMs, 1500L)
-            v = minOf(v, pos.toFloat() / fadeIn, (dur - pos).toFloat() / fadeMs)
-        }
         sleepAt?.let {
             val left = it - System.currentTimeMillis()
             if (left < SLEEP_FADE_MS) v = minOf(v, left.toFloat() / SLEEP_FADE_MS)
         }
-        val target = v.coerceIn(0f, 1f)
+        val base = v.coerceIn(0f, 1f)
+        val remaining = if (dur == C.TIME_UNSET) Long.MAX_VALUE else (dur - player.currentPosition).coerceAtLeast(0)
+        val nextIndex = player.nextMediaItemIndex
+        val eligible = fadeMs > 0 && dur != C.TIME_UNSET && dur > fadeMs * 2 && !sleepEndOfTrack &&
+            player.repeatMode != Player.REPEAT_MODE_ONE && nextIndex != C.INDEX_UNSET
+        if (!eligible || (fadePlayer != null && player.getMediaItemAt(nextIndex).mediaId != fadeNextId)) cancelCrossfade()
+        if (eligible && player.isPlaying && remaining <= fadeMs + 5_000 && fadePlayer == null && player.getMediaItemAt(nextIndex).mediaId != fadeFailedId) {
+            val next = player.getMediaItemAt(nextIndex)
+            fadeNextId = next.mediaId
+            fadePlayer = ExoPlayer.Builder(appContext)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(
+                    SchemeRoutingDataSource.Factory(playbackFactory, DefaultDataSource.Factory(appContext), network),
+                    DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+                ))
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
+                .build().apply {
+                    if (player.audioSessionId != 0) setAudioSessionId(player.audioSessionId)
+                    volume = 0f
+                    setMediaItem(next)
+                    prepare()
+                }
+        }
+        val incoming = fadePlayer
+        if (incoming != null && (incoming.playerError != null || incoming.playbackState == Player.STATE_ENDED ||
+                (incoming.playbackState == Player.STATE_READY && incoming.duration != C.TIME_UNSET && incoming.duration <= remaining && remaining <= fadeMs))) {
+            fadeFailedId = fadeNextId
+            cancelCrossfade()
+            if (player.volume != base) player.volume = base
+            return
+        }
+        if (incoming != null && player.isPlaying && remaining <= fadeMs && incoming.playbackState == Player.STATE_READY) {
+            if (!fadeStarted) { fadeStarted = true; fadeStartRemaining = remaining.coerceAtLeast(1) }
+            if (!incoming.playWhenReady) incoming.play()
+        }
+        val fraction = if (fadeStarted && incoming != null && fadeStartRemaining > 0)
+            (1f - remaining.toFloat() / fadeStartRemaining).coerceIn(0f, 1f) else 0f
+        if (incoming != null) incoming.volume = base * fraction
+        val target = base * (1f - fraction)
         if (player.volume != target) player.volume = target
+    }
+
+    private fun cancelCrossfade() {
+        fadePlayer?.release()
+        fadePlayer = null
+        fadeNextId = null
+        fadeStarted = false
+        fadeStartRemaining = 0L
     }
 
     private fun publish() {
@@ -864,6 +1031,7 @@ class PlaybackEngine(context: Context, private val graph: AppGraph) {
             track = t,
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
+            error = playbackError,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: (t?.durationMs ?: 0),
             hasNext = player.hasNextMediaItem(),
